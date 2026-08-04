@@ -28,11 +28,28 @@ impl Piece {
             z: self.position.z + local_block.z,
         }
     }
+
+    fn move_by(&mut self, delta: Vec3i) {
+        self.position.x += delta.x;
+        self.position.y += delta.y;
+        self.position.z += delta.z;
+    }
 }
 
 #[macroquad::main("Blockout")]
 async fn main() {
-    let piece = Piece {
+    let well = Well {
+        width: 5,
+        height: 5,
+        depth: 12,
+    };
+
+    println!(
+        "well size: {} x {} x {}",
+        well.width, well.height, well.depth
+    );
+
+    let mut piece = Piece {
         position: Vec3i { x: 2, y: 3, z: 0 },
         blocks: vec![
             Vec3i { x: 0, y: 0, z: 0 },
@@ -50,8 +67,35 @@ async fn main() {
     loop {
         clear_background(BLACK);
 
+        let mut delta = Vec3i { x: 0, y: 0, z: 0 };
+
+        if is_key_pressed(KeyCode::A) {
+            delta.x -= 1;
+        }
+
+        if is_key_pressed(KeyCode::D) {
+            delta.x += 1;
+        }
+
+        if is_key_pressed(KeyCode::S) {
+            delta.y -= 1;
+        }
+
+        if is_key_pressed(KeyCode::W) {
+            delta.y += 1;
+        }
+
+        if is_key_pressed(KeyCode::W) {
+            delta.z += 1;
+        }
+
         if is_key_pressed(KeyCode::Space) {
             show_line = !show_line;
+        }
+
+        if delta.x != 0 || delta.y != 0 || delta.z != 0 {
+            piece.move_by(delta);
+            println!("piece position: {:?}", piece.position);
         }
 
         draw_text("Press SPACE to toggle the line", 20.0, 20.0, 20.0, WHITE);
