@@ -20,11 +20,12 @@ struct Figure {
     blocks: Vec<Vec3i>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Well {
     width: i32,
     height: i32,
     depth: i32,
+    occupied: Vec<Vec3i>,
 }
 
 impl Well {
@@ -37,16 +38,27 @@ impl Well {
             && position.z < self.depth
     }
 
-    fn contains_figure(&self, figure: &Figure) -> bool {
-        for local_block in &figure.blocks {
-            let world_block = figure.world_position(*local_block);
+    fn contains_figure(&self, active_figure: &Figure) -> bool {
+        for local_block in &active_figure.blocks {
+            let world_block = active_figure.world_position(*local_block);
 
-            if !self.contains(world_block) {
+            if !self.contains(world_block) || self.is_occupied(world_block) {
                 return false;
             }
         }
 
         true
+    }
+
+    fn is_occupied(&self, position: Vec3i) -> bool {
+        self.occupied.contains(&position)
+    }
+
+    fn lock_figure(&mut self, active_figure: &Figure) {
+        for local_block in &active_figure.blocks {
+            let world_block = active_figure.world_position(*local_block);
+            self.occupied.push(world_block);
+        }
     }
 }
 
@@ -73,6 +85,17 @@ impl Vec3i {
 }
 
 impl Figure {
+    fn new() -> Self {
+        Self {
+            position: Vec3i { x: 2, y: 3, z: 0 },
+            blocks: vec![
+                Vec3i { x: 0, y: 0, z: 0 },
+                Vec3i { x: 1, y: 0, z: 0 },
+                Vec3i { x: 1, y: 1, z: 0 },
+            ],
+        }
+    }
+
     fn world_position(&self, local_block: Vec3i) -> Vec3i {
         Vec3i {
             x: self.position.x + local_block.x,
@@ -97,8 +120,9 @@ impl Figure {
 #[derive(Resource)]
 struct GameModel {
     well: Well,
-    piece: Figure,
+    active_figure: Figure,
     show_line: bool,
+    game_over: bool,
 }
 
 #[derive(Component)]
@@ -109,22 +133,20 @@ struct FigureBlockIndex {
     index: usize,
 }
 
+#[derive(Component)]
+struct LockedBlock;
+
 fn main() {
     let game = GameModel {
         well: Well {
             width: 5,
             height: 5,
             depth: 12,
+            occupied: Vec::new(),
         },
-        piece: Figure {
-            position: Vec3i { x: 2, y: 3, z: 0 },
-            blocks: vec![
-                Vec3i { x: 0, y: 0, z: 0 },
-                Vec3i { x: 1, y: 0, z: 0 },
-                Vec3i { x: 1, y: 1, z: 0 },
-            ],
-        },
+        active_figure: Figure::new(),
         show_line: true,
+        game_over: false,
     };
 
     App::new()
@@ -204,8 +226,8 @@ fn setup(
         ..default()
     });
 
-    for (index, local_block) in game.piece.blocks.iter().enumerate() {
-        let world_block = game.piece.world_position(*local_block);
+    for (index, local_block) in game.active_figure.blocks.iter().enumerate() {
+        let world_block = game.active_figure.world_position(*local_block);
 
         let entity = (
             Mesh3d(block_mesh.clone()),
@@ -225,9 +247,15 @@ fn setup(
 }
 
 fn handle_input(
+    mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut game: ResMut<GameModel>,
     mut line: Query<&mut Visibility, With<DebugLine>>,
+    figure_blocks: Query<(
+        &FigureBlockIndex,
+        &Mesh3d,
+        &MeshMaterial3d<StandardMaterial>,
+    )>,
 ) {
     let mut delta = Vec3i { x: 0, y: 0, z: 0 };
 
@@ -248,48 +276,48 @@ fn handle_input(
     }
 
     if delta.x != 0 || delta.y != 0 || delta.z != 0 {
-        let mut candidate = game.piece.clone();
+        let mut candidate = game.active_figure.clone();
         candidate.move_by(delta);
 
         if game.well.contains_figure(&candidate) {
-            game.piece = candidate;
-            info!("piece position: {:?}", game.piece.position);
+            game.active_figure = candidate;
+            info!("active_figure position: {:?}", game.active_figure.position);
         } else {
             info!("movement blocked by well bounds");
         }
     }
 
     if keyboard.just_pressed(KeyCode::KeyX) {
-        let mut candidate = game.piece.clone();
+        let mut candidate = game.active_figure.clone();
         candidate.rotate_90(Axis::X);
 
         if game.well.contains_figure(&candidate) {
-            game.piece = candidate;
-            info!("rotate X: {:?}", game.piece.blocks);
+            game.active_figure = candidate;
+            info!("rotate X: {:?}", game.active_figure.blocks);
         } else {
             info!("rotation X blocked by well bounds");
         }
     }
 
     if keyboard.just_pressed(KeyCode::KeyY) {
-        let mut candidate = game.piece.clone();
+        let mut candidate = game.active_figure.clone();
         candidate.rotate_90(Axis::Y);
 
         if game.well.contains_figure(&candidate) {
-            game.piece = candidate;
-            info!("rotate Y: {:?}", game.piece.blocks);
+            game.active_figure = candidate;
+            info!("rotate Y: {:?}", game.active_figure.blocks);
         } else {
             info!("rotation Y blocked by well bounds");
         }
     }
 
     if keyboard.just_pressed(KeyCode::KeyZ) {
-        let mut candidate = game.piece.clone();
+        let mut candidate = game.active_figure.clone();
         candidate.rotate_90(Axis::Z);
 
         if game.well.contains_figure(&candidate) {
-            game.piece = candidate;
-            info!("rotate Z: {:?}", game.piece.blocks);
+            game.active_figure = candidate;
+            info!("rotate Z: {:?}", game.active_figure.blocks);
         } else {
             info!("rotation Z blocked by well bounds");
         }
@@ -306,6 +334,44 @@ fn handle_input(
             };
         }
     }
+
+    if keyboard.just_pressed(KeyCode::Enter) {
+        let drop_delta = Vec3i { x: 0, y: 0, z: 1 };
+
+        loop {
+            let mut candidate = game.active_figure.clone();
+            candidate.move_by(drop_delta);
+
+            if game.well.contains_figure(&candidate) {
+                game.active_figure = candidate;
+            } else {
+                break;
+            }
+        }
+
+        let locked_figure = game.active_figure.clone();
+        game.well.lock_figure(&locked_figure);
+
+        info!("active_figure locked at {:?}", game.active_figure.position);
+        info!("occupied cells: {:?}", game.well.occupied);
+
+        for (block_index, mesh, material) in &figure_blocks {
+            let local_block = locked_figure.blocks[block_index.index];
+            let world_block = locked_figure.world_position(local_block);
+
+            commands.spawn((
+                Mesh3d(mesh.0.clone()),
+                MeshMaterial3d(material.0.clone()),
+                Transform::from_xyz(
+                    world_block.x as f32,
+                    world_block.y as f32,
+                    world_block.z as f32,
+                ),
+                LockedBlock,
+            ));
+        }
+        game.active_figure = Figure::new();
+    }
 }
 
 fn sync_figure_position(
@@ -313,8 +379,8 @@ fn sync_figure_position(
     mut blocks: Query<(&FigureBlockIndex, &mut Transform)>,
 ) {
     for (block, mut transform) in &mut blocks {
-        let local_block = game.piece.blocks[block.index];
-        let world_block = game.piece.world_position(local_block);
+        let local_block = game.active_figure.blocks[block.index];
+        let world_block = game.active_figure.world_position(local_block);
 
         transform.translation = Vec3::new(
             world_block.x as f32,
@@ -329,14 +395,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn locking_figure_marks_its_world_cells_as_occupied() {
+        let mut well = Well {
+            width: 5,
+            height: 5,
+            depth: 12,
+            occupied: Vec::new(),
+        };
+
+        let active_figure = Figure {
+            position: Vec3i { x: 2, y: 3, z: 5 },
+            blocks: vec![Vec3i { x: 0, y: 0, z: 0 }, Vec3i { x: 1, y: 0, z: 0 }],
+        };
+
+        well.lock_figure(&active_figure);
+
+        assert!(well.is_occupied(Vec3i { x: 2, y: 3, z: 5 }));
+        assert!(well.is_occupied(Vec3i { x: 3, y: 3, z: 5 }));
+        assert_eq!(well.occupied.len(), 2);
+    }
+
+    #[test]
+    fn well_rejects_figure_overlapping_occupied_cell() {
+        let well = Well {
+            width: 5,
+            height: 5,
+            depth: 12,
+            occupied: vec![Vec3i { x: 3, y: 3, z: 0 }],
+        };
+
+        let active_figure = Figure {
+            position: Vec3i { x: 2, y: 3, z: 0 },
+            blocks: vec![Vec3i { x: 0, y: 0, z: 0 }, Vec3i { x: 1, y: 0, z: 0 }],
+        };
+
+        assert!(!well.contains_figure(&active_figure));
+    }
+
+    #[test]
     fn well_contains_figure_using_world_positions() {
         let well = Well {
             width: 5,
             height: 5,
             depth: 12,
+            occupied: Vec::new(),
         };
 
-        let mut figure = Figure {
+        let mut active_figure = Figure {
             position: Vec3i { x: 3, y: 3, z: 0 },
             blocks: vec![
                 Vec3i { x: 0, y: 0, z: 0 },
@@ -345,11 +450,11 @@ mod tests {
             ],
         };
 
-        assert!(well.contains_figure(&figure));
+        assert!(well.contains_figure(&active_figure));
 
-        figure.position.x += 1;
+        active_figure.position.x += 1;
 
-        assert!(!well.contains_figure(&figure));
+        assert!(!well.contains_figure(&active_figure));
     }
 
     #[test]
@@ -358,6 +463,7 @@ mod tests {
             width: 5,
             height: 5,
             depth: 12,
+            occupied: Vec::new(),
         };
 
         assert!(well.contains(Vec3i { x: 0, y: 0, z: 0 }));
@@ -387,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn four_rotations_restore_piece() {
+    fn four_rotations_restore_figure() {
         let original = Figure {
             position: Vec3i { x: 2, y: 3, z: 0 },
             blocks: vec![
@@ -406,7 +512,7 @@ mod tests {
 
             assert_eq!(
                 rotated, original,
-                "four rotations around {axis:?} must restore the piece"
+                "four rotations around {axis:?} must restore the active_figure"
             );
         }
     }
