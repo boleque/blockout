@@ -27,6 +27,17 @@ struct Well {
     depth: i32,
 }
 
+impl Well {
+    fn contains(&self, position: Vec3i) -> bool {
+        position.x >= 0
+            && position.x < self.width
+            && position.y >= 0
+            && position.y < self.height
+            && position.z >= 0
+            && position.z < self.depth
+    }
+}
+
 impl Vec3i {
     fn rotated_90(self, axis: Axis) -> Self {
         match axis {
@@ -274,6 +285,27 @@ fn sync_figure_position(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn well_contains_only_positions_inside_bounds() {
+        let well = Well {
+            width: 5,
+            height: 5,
+            depth: 12,
+        };
+
+        assert!(well.contains(Vec3i { x: 0, y: 0, z: 0 }));
+        assert!(well.contains(Vec3i { x: 4, y: 4, z: 11 }));
+
+        assert!(!well.contains(Vec3i { x: -1, y: 0, z: 0 }));
+        assert!(!well.contains(Vec3i { x: 5, y: 0, z: 0 }));
+
+        assert!(!well.contains(Vec3i { x: 0, y: -1, z: 0 }));
+        assert!(!well.contains(Vec3i { x: 0, y: 5, z: 0 }));
+
+        assert!(!well.contains(Vec3i { x: 0, y: 0, z: -1 }));
+        assert!(!well.contains(Vec3i { x: 0, y: 0, z: 12 }));
+    }
 
     #[test]
     fn rotation_order_matters() {
