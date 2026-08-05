@@ -248,21 +248,51 @@ fn handle_input(
     }
 
     if delta.x != 0 || delta.y != 0 || delta.z != 0 {
-        game.piece.move_by(delta);
-        info!("piece position: {:?}", game.piece.position);
+        let mut candidate = game.piece.clone();
+        candidate.move_by(delta);
+
+        if game.well.contains_figure(&candidate) {
+            game.piece = candidate;
+            info!("piece position: {:?}", game.piece.position);
+        } else {
+            info!("movement blocked by well bounds");
+        }
     }
 
     if keyboard.just_pressed(KeyCode::KeyX) {
-        game.piece.rotate_90(Axis::X);
-        info!("rotate X: {:?}", game.piece.blocks);
+        let mut candidate = game.piece.clone();
+        candidate.rotate_90(Axis::X);
+
+        if game.well.contains_figure(&candidate) {
+            game.piece = candidate;
+            info!("rotate X: {:?}", game.piece.blocks);
+        } else {
+            info!("rotation X blocked by well bounds");
+        }
     }
+
     if keyboard.just_pressed(KeyCode::KeyY) {
-        game.piece.rotate_90(Axis::Y);
-        info!("rotate Y: {:?}", game.piece.blocks);
+        let mut candidate = game.piece.clone();
+        candidate.rotate_90(Axis::Y);
+
+        if game.well.contains_figure(&candidate) {
+            game.piece = candidate;
+            info!("rotate Y: {:?}", game.piece.blocks);
+        } else {
+            info!("rotation Y blocked by well bounds");
+        }
     }
+
     if keyboard.just_pressed(KeyCode::KeyZ) {
-        game.piece.rotate_90(Axis::Z);
-        info!("rotate Z: {:?}", game.piece.blocks);
+        let mut candidate = game.piece.clone();
+        candidate.rotate_90(Axis::Z);
+
+        if game.well.contains_figure(&candidate) {
+            game.piece = candidate;
+            info!("rotate Z: {:?}", game.piece.blocks);
+        } else {
+            info!("rotation Z blocked by well bounds");
+        }
     }
 
     if keyboard.just_pressed(KeyCode::Space) {
@@ -297,6 +327,30 @@ fn sync_figure_position(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn well_contains_figure_using_world_positions() {
+        let well = Well {
+            width: 5,
+            height: 5,
+            depth: 12,
+        };
+
+        let mut figure = Figure {
+            position: Vec3i { x: 3, y: 3, z: 0 },
+            blocks: vec![
+                Vec3i { x: 0, y: 0, z: 0 },
+                Vec3i { x: 1, y: 0, z: 0 },
+                Vec3i { x: 1, y: 1, z: 0 },
+            ],
+        };
+
+        assert!(well.contains_figure(&figure));
+
+        figure.position.x += 1;
+
+        assert!(!well.contains_figure(&figure));
+    }
 
     #[test]
     fn well_contains_only_positions_inside_bounds() {
