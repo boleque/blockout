@@ -257,6 +257,10 @@ fn handle_input(
         &MeshMaterial3d<StandardMaterial>,
     )>,
 ) {
+    if game.game_over {
+        return;
+    }
+
     let mut delta = Vec3i { x: 0, y: 0, z: 0 };
 
     if keyboard.just_pressed(KeyCode::KeyA) {
@@ -371,6 +375,11 @@ fn handle_input(
             ));
         }
         game.active_figure = Figure::new();
+
+        let can_spawn = game.well.contains_figure(&game.active_figure);
+        if !can_spawn {
+            game.game_over = true;
+        }
     }
 }
 
