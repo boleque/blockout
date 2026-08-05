@@ -81,6 +81,11 @@ struct GameModel {
 #[derive(Component)]
 struct DebugLine;
 
+#[derive(Component)]
+struct PieceBlock {
+    index: usize,
+}
+
 fn main() {
     let game = GameModel {
         well: Well {
@@ -110,12 +115,29 @@ fn main() {
             ..default()
         }))
         .add_systems(Startup, setup)
-        .add_systems(Update, handle_input)
+        .add_systems(Update, (handle_input, sync_piece_visuals).chain())
         .run();
 }
 
-fn setup(mut commands: Commands, game: Res<GameModel>) {
-    commands.spawn(Camera2d);
+fn setup(
+    mut commands: Commands,
+    game: Res<GameModel>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(10.0, 8.0, -14.0).looking_at(Vec3::new(2.5, 2.5, 4.0), Vec3::Y),
+        IsDefaultUiCamera,
+    ));
+
+    commands.spawn((
+        PointLight {
+            shadow_maps_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(4.0, 8.0, -4.0),
+    ));
 
     commands.spawn((
         Text::new("MOVE: A/D = X, W/S = Y, E = +Z\nROTATE: X / Y / Z, SPACE = line"),
@@ -150,8 +172,29 @@ fn setup(mut commands: Commands, game: Res<GameModel>) {
         game.well.width, game.well.height, game.well.depth
     );
 
-    for local_block in &game.piece.blocks {
+    let block_mesh = meshes.add(Cuboid::new(0.9, 0.9, 0.9));
+
+    let block_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(1.2, 0.7, 1.0),
+        metallic: 0.0,
+        perceptual_roughness: 0.1,
+        ..default()
+    });
+
+    for (index, local_block) in game.piece.blocks.iter().enumerate() {
         let world_block = game.piece.world_position(*local_block);
+
+        commands.spawn((
+            Mesh3d(block_mesh.clone()),
+            MeshMaterial3d(block_material.clone()),
+            Transform::from_xyz(
+                world_block.x as f32,
+                world_block.y as f32,
+                world_block.z as f32,
+            ),
+            PieceBlock { index },
+        ));
+
         info!("local {local_block:?} -> world {world_block:?}");
     }
 }
@@ -210,9 +253,35 @@ fn handle_input(
     }
 }
 
+fn sync_piece_visuals(game: Res<GameModel>, mut blocks: Query<(&PieceBlock, &mut Transform)>) {
+    for (block, mut transform) in &mut blocks {
+        let local_block = game.piece.blocks[block.index];
+        let world_block = game.piece.world_position(local_block);
+
+        transform.translation = Vec3::new(
+            world_block.x as f32,
+            world_block.y as f32,
+            world_block.z as f32,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rotation_order_matters() {
+        let original = Vec3i { x: 1, y: 2, z: 3 };
+
+        let x_then_y = original.rotated_90(Axis::X).rotated_90(Axis::Y);
+
+        let y_then_x = original.rotated_90(Axis::Y).rotated_90(Axis::X);
+
+        assert_eq!(x_then_y, Vec3i { x: 2, y: -3, z: -1 });
+        assert_eq!(y_then_x, Vec3i { x: 3, y: 1, z: 2 });
+        assert_ne!(x_then_y, y_then_x);
+    }
 
     #[test]
     fn four_rotations_restore_piece() {
