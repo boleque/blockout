@@ -38,11 +38,14 @@ impl Well {
     }
 
     fn contains_figure(&self, figure: &Figure) -> bool {
-        for block in &figure.blocks {
-            if !self.contains(*block) {
+        for local_block in &figure.blocks {
+            let world_block = figure.world_position(*local_block);
+
+            if !self.contains(world_block) {
                 return false;
             }
         }
+
         true
     }
 }
