@@ -15,7 +15,7 @@ struct Vec3i {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Piece {
+struct Figure {
     position: Vec3i,
     blocks: Vec<Vec3i>,
 }
@@ -49,7 +49,7 @@ impl Vec3i {
     }
 }
 
-impl Piece {
+impl Figure {
     fn world_position(&self, local_block: Vec3i) -> Vec3i {
         Vec3i {
             x: self.position.x + local_block.x,
@@ -74,7 +74,7 @@ impl Piece {
 #[derive(Resource)]
 struct GameModel {
     well: Well,
-    piece: Piece,
+    piece: Figure,
     show_line: bool,
 }
 
@@ -82,7 +82,7 @@ struct GameModel {
 struct DebugLine;
 
 #[derive(Component)]
-struct PieceBlock {
+struct FigureBlockIndex {
     index: usize,
 }
 
@@ -93,7 +93,7 @@ fn main() {
             height: 5,
             depth: 12,
         },
-        piece: Piece {
+        piece: Figure {
             position: Vec3i { x: 2, y: 3, z: 0 },
             blocks: vec![
                 Vec3i { x: 0, y: 0, z: 0 },
@@ -115,7 +115,7 @@ fn main() {
             ..default()
         }))
         .add_systems(Startup, setup)
-        .add_systems(Update, (handle_input, sync_piece_visuals).chain())
+        .add_systems(Update, (handle_input, sync_figure_position).chain())
         .run();
 }
 
@@ -184,7 +184,7 @@ fn setup(
     for (index, local_block) in game.piece.blocks.iter().enumerate() {
         let world_block = game.piece.world_position(*local_block);
 
-        commands.spawn((
+        let entity = (
             Mesh3d(block_mesh.clone()),
             MeshMaterial3d(block_material.clone()),
             Transform::from_xyz(
@@ -192,8 +192,10 @@ fn setup(
                 world_block.y as f32,
                 world_block.z as f32,
             ),
-            PieceBlock { index },
-        ));
+            FigureBlockIndex { index },
+        );
+
+        commands.spawn(entity);
 
         info!("local {local_block:?} -> world {world_block:?}");
     }
@@ -253,7 +255,10 @@ fn handle_input(
     }
 }
 
-fn sync_piece_visuals(game: Res<GameModel>, mut blocks: Query<(&PieceBlock, &mut Transform)>) {
+fn sync_figure_position(
+    game: Res<GameModel>,
+    mut blocks: Query<(&FigureBlockIndex, &mut Transform)>,
+) {
     for (block, mut transform) in &mut blocks {
         let local_block = game.piece.blocks[block.index];
         let world_block = game.piece.world_position(local_block);
@@ -285,7 +290,7 @@ mod tests {
 
     #[test]
     fn four_rotations_restore_piece() {
-        let original = Piece {
+        let original = Figure {
             position: Vec3i { x: 2, y: 3, z: 0 },
             blocks: vec![
                 Vec3i { x: 0, y: 0, z: 0 },
