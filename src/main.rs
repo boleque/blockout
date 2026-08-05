@@ -36,6 +36,15 @@ impl Well {
             && position.z >= 0
             && position.z < self.depth
     }
+
+    fn contains_figure(&self, figure: &Figure) -> bool {
+        for block in &figure.blocks {
+            if !self.contains(*block) {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 impl Vec3i {
