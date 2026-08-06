@@ -76,6 +76,37 @@ impl Well {
 
         true
     }
+
+    fn clear_plane(&mut self, z: i32) -> bool {
+        if !self.is_plane_full(z) {
+            return false;
+        }
+
+        self.occupied.retain(|position| position.z != z);
+
+        for position in &mut self.occupied {
+            if position.z < z {
+                position.z += 1;
+            }
+        }
+
+        true
+    }
+
+    fn clear_full_planes(&mut self) -> usize {
+        let mut cleared_planes = 0;
+        let mut z = self.depth - 1;
+
+        while z >= 0 {
+            if self.clear_plane(z) {
+                cleared_planes += 1;
+            } else {
+                z -= 1;
+            }
+        }
+
+        cleared_planes
+    }
 }
 
 impl Vec3i {
@@ -309,6 +340,7 @@ fn handle_input(
         &Mesh3d,
         &MeshMaterial3d<StandardMaterial>,
     )>,
+    locked_blocks: Query<Entity, With<LockedBlock>>,
 ) {
     if game.game_over {
         return;
@@ -409,6 +441,10 @@ fn handle_input(
         let locked_figure = game.active_figure.clone();
         game.well.lock_figure(&locked_figure);
 
+        let cleared_planes = game.well.clear_full_planes();
+        if cleared_planes > 0 {
+            info!("cleared {} planes", cleared_planes);
+        }
         info!("active_figure locked at {:?}", game.active_figure.position);
         info!("occupied cells: {:?}", game.well.occupied);
 
@@ -426,6 +462,7 @@ fn handle_input(
                 ),
                 LockedBlock,
             ));
+        info!("cleared planes: {}", cleared_planes);
         }
         game.active_figure = Figure::new();
 
@@ -524,6 +561,55 @@ fn apply_gravity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clear_full_planes_removes_multiple_planes() {
+        let mut well = Well {
+            width: 2,
+            height: 1,
+            depth: 4,
+            occupied: vec![
+                Vec3i { x: 0, y: 0, z: 1 },
+                Vec3i { x: 0, y: 0, z: 2 },
+                Vec3i { x: 1, y: 0, z: 2 },
+                Vec3i { x: 0, y: 0, z: 3 },
+                Vec3i { x: 1, y: 0, z: 3 },
+            ],
+        };
+
+        let cleared_planes = well.clear_full_planes();
+
+        assert_eq!(cleared_planes, 2);
+        assert_eq!(well.occupied.len(), 1);
+        assert!(well.is_occupied(Vec3i { x: 0, y: 0, z: 3 }));
+    }
+
+    #[test]
+    fn clearing_full_plane_removes_it_and_shifts_cells_above() {
+        let mut well = Well {
+            width: 2,
+            height: 2,
+            depth: 4,
+            occupied: vec![
+                Vec3i { x: 0, y: 0, z: 2 },
+                Vec3i { x: 1, y: 0, z: 2 },
+                Vec3i { x: 0, y: 1, z: 2 },
+                Vec3i { x: 1, y: 1, z: 2 },
+                Vec3i { x: 0, y: 0, z: 1 },
+                Vec3i { x: 1, y: 1, z: 3 },
+            ],
+        };
+
+        let cleared = well.clear_plane(2);
+
+        assert!(cleared);
+
+        assert!(!well.is_occupied(Vec3i { x: 0, y: 0, z: 1 }));
+        assert!(well.is_occupied(Vec3i { x: 0, y: 0, z: 2 }));
+        assert!(well.is_occupied(Vec3i { x: 1, y: 1, z: 3 }));
+
+        assert_eq!(well.occupied.len(), 2);
+    }
 
     #[test]
     fn plane_is_full_when_all_its_cells_are_occupied() {
