@@ -8,16 +8,36 @@ enum Axis {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FigureColor {
+    Cyan,
+    Orange,
+    Green,
+    Purple,
+    Yellow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Vec3i {
     x: i32,
     y: i32,
     z: i32,
 }
 
+#[derive(Resource)]
+struct BlockVisualAssets {
+    mesh: Handle<Mesh>,
+    cyan: Handle<StandardMaterial>,
+    orange: Handle<StandardMaterial>,
+    green: Handle<StandardMaterial>,
+    purple: Handle<StandardMaterial>,
+    yellow: Handle<StandardMaterial>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Figure {
     position: Vec3i,
     blocks: Vec<Vec3i>,
+    color: FigureColor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +46,46 @@ struct Well {
     height: i32,
     depth: i32,
     occupied: Vec<Vec3i>,
+}
+
+#[derive(Resource)]
+struct GameModel {
+    well: Well,
+    active_figure: Figure,
+    next_figure: Figure,
+    show_line: bool,
+    game_over: bool,
+}
+
+#[derive(Component)]
+struct DebugLine;
+
+#[derive(Component)]
+struct FigureBlockIndex {
+    index: usize,
+}
+
+#[derive(Component)]
+struct LockedBlock;
+
+#[derive(Component)]
+struct GameOverText;
+
+#[derive(Resource)]
+struct GravityTimer {
+    timer: Timer,
+}
+
+impl FigureColor {
+    fn next(self) -> FigureColor {
+        match self {
+            FigureColor::Cyan => FigureColor::Orange,
+            FigureColor::Orange => FigureColor::Green,
+            FigureColor::Green => FigureColor::Purple,
+            FigureColor::Purple => FigureColor::Yellow,
+            FigureColor::Yellow => FigureColor::Cyan,
+        }
+    }
 }
 
 impl Well {
@@ -132,7 +192,7 @@ impl Vec3i {
 }
 
 impl Figure {
-    fn new() -> Self {
+    fn new(color: FigureColor) -> Self {
         Self {
             position: Vec3i { x: 2, y: 3, z: 0 },
             blocks: vec![
@@ -140,6 +200,7 @@ impl Figure {
                 Vec3i { x: 1, y: 0, z: 0 },
                 Vec3i { x: 1, y: 1, z: 0 },
             ],
+            color,
         }
     }
 
@@ -164,33 +225,6 @@ impl Figure {
     }
 }
 
-#[derive(Resource)]
-struct GameModel {
-    well: Well,
-    active_figure: Figure,
-    show_line: bool,
-    game_over: bool,
-}
-
-#[derive(Component)]
-struct DebugLine;
-
-#[derive(Component)]
-struct FigureBlockIndex {
-    index: usize,
-}
-
-#[derive(Component)]
-struct LockedBlock;
-
-#[derive(Component)]
-struct GameOverText;
-
-#[derive(Resource)]
-struct GravityTimer {
-    timer: Timer,
-}
-
 fn main() {
     let game = GameModel {
         well: Well {
@@ -199,7 +233,8 @@ fn main() {
             depth: 12,
             occupied: Vec::new(),
         },
-        active_figure: Figure::new(),
+        active_figure: Figure::new(FigureColor::Cyan),
+        next_figure: Figure::new(FigureColor::Orange),
         show_line: true,
         game_over: false,
     };
@@ -340,7 +375,6 @@ fn handle_input(
         &Mesh3d,
         &MeshMaterial3d<StandardMaterial>,
     )>,
-    locked_blocks: Query<Entity, With<LockedBlock>>,
 ) {
     if game.game_over {
         return;
@@ -445,26 +479,32 @@ fn handle_input(
         if cleared_planes > 0 {
             info!("cleared {} planes", cleared_planes);
         }
+
         info!("active_figure locked at {:?}", game.active_figure.position);
         info!("occupied cells: {:?}", game.well.occupied);
-
-        for (block_index, mesh, material) in &figure_blocks {
-            let local_block = locked_figure.blocks[block_index.index];
-            let world_block = locked_figure.world_position(local_block);
-
-            commands.spawn((
-                Mesh3d(mesh.0.clone()),
-                MeshMaterial3d(material.0.clone()),
-                Transform::from_xyz(
-                    world_block.x as f32,
-                    world_block.y as f32,
-                    world_block.z as f32,
-                ),
-                LockedBlock,
-            ));
         info!("cleared planes: {}", cleared_planes);
+
+        if let Some((_block_index, mesh, material)) = figure_blocks.iter().next() {
+            for local_block in &locked_figure.blocks {
+                let world_block = locked_figure.world_position(*local_block);
+
+                commands.spawn((
+                    Mesh3d(mesh.0.clone()),
+                    MeshMaterial3d(material.0.clone()),
+                    Transform::from_xyz(
+                        world_block.x as f32,
+                        world_block.y as f32,
+                        world_block.z as f32,
+                    ),
+                    LockedBlock,
+                ));
+            }
         }
-        game.active_figure = Figure::new();
+
+        let following_color = game.next_figure.color.next();
+
+        game.active_figure = game.next_figure.clone();
+        game.next_figure = Figure::new(following_color);
 
         let can_spawn = game.well.can_place_figure(&game.active_figure);
         if !can_spawn {
@@ -528,8 +568,12 @@ fn apply_gravity(
         game.active_figure = candidate;
     } else {
         let locked_figure = game.active_figure.clone();
-
         game.well.lock_figure(&locked_figure);
+
+        let cleared_planes = game.well.clear_full_planes();
+        if cleared_planes > 0 {
+            info!("cleared {} planes", cleared_planes);
+        }
 
         for (block_index, mesh, material) in &figure_blocks {
             let local_block = locked_figure.blocks[block_index.index];
@@ -547,7 +591,10 @@ fn apply_gravity(
             ));
         }
 
-        game.active_figure = Figure::new();
+        let following_color = game.next_figure.color.next();
+
+        game.active_figure = game.next_figure.clone();
+        game.next_figure = Figure::new(following_color);
 
         let can_spawn = game.well.can_place_figure(&game.active_figure);
 
@@ -643,6 +690,7 @@ mod tests {
         let active_figure = Figure {
             position: Vec3i { x: 2, y: 3, z: 5 },
             blocks: vec![Vec3i { x: 0, y: 0, z: 0 }, Vec3i { x: 1, y: 0, z: 0 }],
+            color: FigureColor::Cyan,
         };
 
         well.lock_figure(&active_figure);
@@ -664,6 +712,7 @@ mod tests {
         let active_figure = Figure {
             position: Vec3i { x: 2, y: 3, z: 0 },
             blocks: vec![Vec3i { x: 0, y: 0, z: 0 }, Vec3i { x: 1, y: 0, z: 0 }],
+            color: FigureColor::Cyan,
         };
 
         assert!(!well.can_place_figure(&active_figure));
@@ -685,6 +734,7 @@ mod tests {
                 Vec3i { x: 1, y: 0, z: 0 },
                 Vec3i { x: 1, y: 1, z: 0 },
             ],
+            color: FigureColor::Cyan,
         };
 
         assert!(well.can_place_figure(&active_figure));
@@ -738,6 +788,7 @@ mod tests {
                 Vec3i { x: 1, y: 0, z: 0 },
                 Vec3i { x: 1, y: 1, z: 0 },
             ],
+            color: FigureColor::Cyan,
         };
 
         for axis in [Axis::X, Axis::Y, Axis::Z] {
