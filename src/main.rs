@@ -76,6 +76,18 @@ struct GravityTimer {
     timer: Timer,
 }
 
+impl BlockVisualAssets {
+    fn material_for(&self, color: FigureColor) -> Handle<StandardMaterial> {
+        match color {
+            FigureColor::Cyan => self.cyan.clone(),
+            FigureColor::Orange => self.orange.clone(),
+            FigureColor::Green => self.green.clone(),
+            FigureColor::Purple => self.purple.clone(),
+            FigureColor::Yellow => self.yellow.clone(),
+        }
+    }
+}
+
 impl FigureColor {
     fn next(self) -> FigureColor {
         match self {
@@ -225,6 +237,15 @@ impl Figure {
     }
 }
 
+fn make_block_material(base_color: Color) -> StandardMaterial {
+    StandardMaterial {
+        base_color,
+        metallic: 0.0,
+        perceptual_roughness: 0.25,
+        ..default()
+    }
+}
+
 fn main() {
     let game = GameModel {
         well: Well {
@@ -336,14 +357,20 @@ fn setup(
         game.well.width, game.well.height, game.well.depth
     );
 
-    let block_mesh = meshes.add(Cuboid::new(0.9, 0.9, 0.9));
+    let block_visuals = BlockVisualAssets {
+        mesh: meshes.add(Cuboid::new(0.9, 0.9, 0.9)),
+        cyan: materials.add(make_block_material(Color::srgb(0.2, 0.8, 1.0))),
+        orange: materials.add(make_block_material(Color::srgb(1.0, 0.4, 0.1))),
+        green: materials.add(make_block_material(Color::srgb(0.2, 0.9, 0.3))),
+        purple: materials.add(make_block_material(Color::srgb(0.7, 0.2, 1.0))),
+        yellow: materials.add(make_block_material(Color::srgb(1.0, 0.85, 0.1))),
+    };
 
-    let block_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(1.2, 0.7, 1.0),
-        metallic: 0.0,
-        perceptual_roughness: 0.1,
-        ..default()
-    });
+    let block_mesh = block_visuals.mesh.clone();
+
+    let block_material = block_visuals.material_for(game.active_figure.color);
+
+    commands.insert_resource(block_visuals);
 
     for (index, local_block) in game.active_figure.blocks.iter().enumerate() {
         let world_block = game.active_figure.world_position(*local_block);
@@ -515,9 +542,16 @@ fn handle_input(
 
 fn sync_figure_position(
     game: Res<GameModel>,
-    mut blocks: Query<(&FigureBlockIndex, &mut Transform)>,
+    block_visuals: Res<BlockVisualAssets>,
+    mut blocks: Query<(
+        &FigureBlockIndex,
+        &mut Transform,
+        &mut MeshMaterial3d<StandardMaterial>,
+    )>,
 ) {
-    for (block, mut transform) in &mut blocks {
+    let active_material = block_visuals.material_for(game.active_figure.color);
+
+    for (block, mut transform, mut material) in &mut blocks {
         let local_block = game.active_figure.blocks[block.index];
         let world_block = game.active_figure.world_position(local_block);
 
@@ -526,6 +560,8 @@ fn sync_figure_position(
             world_block.y as f32,
             world_block.z as f32,
         );
+
+        material.0 = active_material.clone();
     }
 }
 
