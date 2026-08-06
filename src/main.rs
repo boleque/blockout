@@ -38,7 +38,7 @@ impl Well {
             && position.z < self.depth
     }
 
-    fn contains_figure(&self, active_figure: &Figure) -> bool {
+    fn can_place_figure(&self, active_figure: &Figure) -> bool {
         for local_block in &active_figure.blocks {
             let world_block = active_figure.world_position(*local_block);
 
@@ -139,6 +139,11 @@ struct LockedBlock;
 #[derive(Component)]
 struct GameOverText;
 
+#[derive(Resource)]
+struct GravityTimer {
+    timer: Timer,
+}
+
 fn main() {
     let game = GameModel {
         well: Well {
@@ -155,6 +160,9 @@ fn main() {
     App::new()
         .insert_resource(game)
         .insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0)))
+        .insert_resource(GravityTimer {
+            timer: Timer::from_seconds(0.7, TimerMode::Repeating),
+        })
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Blockout".into(),
@@ -165,7 +173,13 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(
             Update,
-            (handle_input, sync_figure_position, sync_game_over_text).chain(),
+            (
+                handle_input,
+                apply_gravity,
+                sync_figure_position,
+                sync_game_over_text,
+            )
+                .chain(),
         )
         .run();
 }
@@ -306,7 +320,7 @@ fn handle_input(
         let mut candidate = game.active_figure.clone();
         candidate.move_by(delta);
 
-        if game.well.contains_figure(&candidate) {
+        if game.well.can_place_figure(&candidate) {
             game.active_figure = candidate;
             info!("active_figure position: {:?}", game.active_figure.position);
         } else {
@@ -318,7 +332,7 @@ fn handle_input(
         let mut candidate = game.active_figure.clone();
         candidate.rotate_90(Axis::X);
 
-        if game.well.contains_figure(&candidate) {
+        if game.well.can_place_figure(&candidate) {
             game.active_figure = candidate;
             info!("rotate X: {:?}", game.active_figure.blocks);
         } else {
@@ -330,7 +344,7 @@ fn handle_input(
         let mut candidate = game.active_figure.clone();
         candidate.rotate_90(Axis::Y);
 
-        if game.well.contains_figure(&candidate) {
+        if game.well.can_place_figure(&candidate) {
             game.active_figure = candidate;
             info!("rotate Y: {:?}", game.active_figure.blocks);
         } else {
@@ -342,7 +356,7 @@ fn handle_input(
         let mut candidate = game.active_figure.clone();
         candidate.rotate_90(Axis::Z);
 
-        if game.well.contains_figure(&candidate) {
+        if game.well.can_place_figure(&candidate) {
             game.active_figure = candidate;
             info!("rotate Z: {:?}", game.active_figure.blocks);
         } else {
@@ -369,7 +383,7 @@ fn handle_input(
             let mut candidate = game.active_figure.clone();
             candidate.move_by(drop_delta);
 
-            if game.well.contains_figure(&candidate) {
+            if game.well.can_place_figure(&candidate) {
                 game.active_figure = candidate;
             } else {
                 break;
@@ -399,7 +413,7 @@ fn handle_input(
         }
         game.active_figure = Figure::new();
 
-        let can_spawn = game.well.contains_figure(&game.active_figure);
+        let can_spawn = game.well.can_place_figure(&game.active_figure);
         if !can_spawn {
             game.game_over = true;
         }
@@ -429,6 +443,65 @@ fn sync_game_over_text(game: Res<GameModel>, mut text: Query<&mut Visibility, Wi
         } else {
             Visibility::Hidden
         };
+    }
+}
+
+fn apply_gravity(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut gravity: ResMut<GravityTimer>,
+    mut game: ResMut<GameModel>,
+    figure_blocks: Query<(
+        &FigureBlockIndex,
+        &Mesh3d,
+        &MeshMaterial3d<StandardMaterial>,
+    )>,
+) {
+    if game.game_over {
+        return;
+    }
+
+    gravity.timer.tick(time.delta());
+
+    if !gravity.timer.just_finished() {
+        return;
+    }
+
+    let mut candidate = game.active_figure.clone();
+
+    candidate.move_by(Vec3i { x: 0, y: 0, z: 1 });
+
+    if game.well.can_place_figure(&candidate) {
+        game.active_figure = candidate;
+    } else {
+        let locked_figure = game.active_figure.clone();
+
+        game.well.lock_figure(&locked_figure);
+
+        for (block_index, mesh, material) in &figure_blocks {
+            let local_block = locked_figure.blocks[block_index.index];
+            let world_block = locked_figure.world_position(local_block);
+
+            commands.spawn((
+                Mesh3d(mesh.0.clone()),
+                MeshMaterial3d(material.0.clone()),
+                Transform::from_xyz(
+                    world_block.x as f32,
+                    world_block.y as f32,
+                    world_block.z as f32,
+                ),
+                LockedBlock,
+            ));
+        }
+
+        game.active_figure = Figure::new();
+
+        let can_spawn = game.well.can_place_figure(&game.active_figure);
+
+        if !can_spawn {
+            game.game_over = true;
+            info!("GAME OVER");
+        }
     }
 }
 
@@ -471,11 +544,11 @@ mod tests {
             blocks: vec![Vec3i { x: 0, y: 0, z: 0 }, Vec3i { x: 1, y: 0, z: 0 }],
         };
 
-        assert!(!well.contains_figure(&active_figure));
+        assert!(!well.can_place_figure(&active_figure));
     }
 
     #[test]
-    fn well_contains_figure_using_world_positions() {
+    fn well_can_place_figure_using_world_positions() {
         let well = Well {
             width: 5,
             height: 5,
@@ -492,11 +565,11 @@ mod tests {
             ],
         };
 
-        assert!(well.contains_figure(&active_figure));
+        assert!(well.can_place_figure(&active_figure));
 
         active_figure.position.x += 1;
 
-        assert!(!well.contains_figure(&active_figure));
+        assert!(!well.can_place_figure(&active_figure));
     }
 
     #[test]
