@@ -136,6 +136,9 @@ struct FigureBlockIndex {
 #[derive(Component)]
 struct LockedBlock;
 
+#[derive(Component)]
+struct GameOverText;
+
 fn main() {
     let game = GameModel {
         well: Well {
@@ -160,7 +163,10 @@ fn main() {
             ..default()
         }))
         .add_systems(Startup, setup)
-        .add_systems(Update, (handle_input, sync_figure_position).chain())
+        .add_systems(
+            Update,
+            (handle_input, sync_figure_position, sync_game_over_text).chain(),
+        )
         .run();
 }
 
@@ -210,6 +216,23 @@ fn setup(
         },
         BackgroundColor(Color::srgb(0.0, 1.0, 0.0)),
         DebugLine,
+    ));
+
+    commands.spawn((
+        Text::new("GAME OVER"),
+        TextFont {
+            font_size: FontSize::Px(48.0),
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 0.2, 0.2)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: px(250.0),
+            left: px(450.0),
+            ..default()
+        },
+        Visibility::Hidden,
+        GameOverText,
     ));
 
     info!(
@@ -396,6 +419,16 @@ fn sync_figure_position(
             world_block.y as f32,
             world_block.z as f32,
         );
+    }
+}
+
+fn sync_game_over_text(game: Res<GameModel>, mut text: Query<&mut Visibility, With<GameOverText>>) {
+    for mut visibility in &mut text {
+        *visibility = if game.game_over {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
 }
 
