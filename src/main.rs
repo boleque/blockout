@@ -60,6 +60,22 @@ impl Well {
             self.occupied.push(world_block);
         }
     }
+
+    fn is_plane_full(&self, z: i32) -> bool {
+        if z < 0 || z >= self.depth {
+            return false;
+        }
+
+        for x in 0..self.width {
+            for y in 0..self.height {
+                if !self.is_occupied(Vec3i { x, y, z }) {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
 }
 
 impl Vec3i {
@@ -508,6 +524,26 @@ fn apply_gravity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plane_is_full_when_all_its_cells_are_occupied() {
+        let well = Well {
+            width: 2,
+            height: 2,
+            depth: 3,
+            occupied: vec![
+                Vec3i { x: 0, y: 0, z: 2 },
+                Vec3i { x: 1, y: 0, z: 2 },
+                Vec3i { x: 0, y: 1, z: 2 },
+                Vec3i { x: 1, y: 1, z: 2 },
+            ],
+        };
+
+        assert!(well.is_plane_full(2));
+        assert!(!well.is_plane_full(1));
+        assert!(!well.is_plane_full(-1));
+        assert!(!well.is_plane_full(3));
+    }
 
     #[test]
     fn locking_figure_marks_its_world_cells_as_occupied() {
