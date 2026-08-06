@@ -17,6 +17,17 @@ enum FigureColor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FigureKind {
+    I,
+    O,
+    T,
+    L,
+    J,
+    S,
+    Z,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Vec3i {
     x: i32,
     y: i32,
@@ -35,6 +46,7 @@ struct BlockVisualAssets {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Figure {
+    kind: FigureKind,
     position: Vec3i,
     blocks: Vec<Vec3i>,
     color: FigureColor,
@@ -71,6 +83,11 @@ struct LockedBlock;
 #[derive(Component)]
 struct GameOverText;
 
+#[derive(Component)]
+struct PreviewBlockIndex {
+    index: usize,
+}
+
 #[derive(Resource)]
 struct GravityTimer {
     timer: Timer,
@@ -96,6 +113,20 @@ impl FigureColor {
             FigureColor::Green => FigureColor::Purple,
             FigureColor::Purple => FigureColor::Yellow,
             FigureColor::Yellow => FigureColor::Cyan,
+        }
+    }
+}
+
+impl FigureKind {
+    fn next(self) -> FigureKind {
+        match self {
+            FigureKind::I => FigureKind::O,
+            FigureKind::O => FigureKind::T,
+            FigureKind::T => FigureKind::L,
+            FigureKind::L => FigureKind::J,
+            FigureKind::J => FigureKind::S,
+            FigureKind::S => FigureKind::Z,
+            FigureKind::Z => FigureKind::I,
         }
     }
 }
@@ -204,14 +235,55 @@ impl Vec3i {
 }
 
 impl Figure {
-    fn new(color: FigureColor) -> Self {
-        Self {
-            position: Vec3i { x: 2, y: 3, z: 0 },
-            blocks: vec![
+    fn new(kind: FigureKind, color: FigureColor) -> Self {
+        let blocks = match kind {
+            FigureKind::I => vec![
+                Vec3i { x: -1, y: 0, z: 0 },
+                Vec3i { x: 0, y: 0, z: 0 },
+                Vec3i { x: 1, y: 0, z: 0 },
+                Vec3i { x: 2, y: 0, z: 0 },
+            ],
+            FigureKind::O => vec![
+                Vec3i { x: 0, y: 0, z: 0 },
+                Vec3i { x: 1, y: 0, z: 0 },
+                Vec3i { x: 0, y: 1, z: 0 },
+                Vec3i { x: 1, y: 1, z: 0 },
+            ],
+            FigureKind::T => vec![
+                Vec3i { x: -1, y: 0, z: 0 },
+                Vec3i { x: 0, y: 0, z: 0 },
+                Vec3i { x: 1, y: 0, z: 0 },
+                Vec3i { x: 0, y: 1, z: 0 },
+            ],
+            FigureKind::L => vec![
+                Vec3i { x: -1, y: 0, z: 0 },
                 Vec3i { x: 0, y: 0, z: 0 },
                 Vec3i { x: 1, y: 0, z: 0 },
                 Vec3i { x: 1, y: 1, z: 0 },
             ],
+            FigureKind::J => vec![
+                Vec3i { x: -1, y: 1, z: 0 },
+                Vec3i { x: -1, y: 0, z: 0 },
+                Vec3i { x: 0, y: 0, z: 0 },
+                Vec3i { x: 1, y: 0, z: 0 },
+            ],
+            FigureKind::S => vec![
+                Vec3i { x: 0, y: 0, z: 0 },
+                Vec3i { x: 1, y: 0, z: 0 },
+                Vec3i { x: -1, y: 1, z: 0 },
+                Vec3i { x: 0, y: 1, z: 0 },
+            ],
+            FigureKind::Z => vec![
+                Vec3i { x: -1, y: 0, z: 0 },
+                Vec3i { x: 0, y: 0, z: 0 },
+                Vec3i { x: 0, y: 1, z: 0 },
+                Vec3i { x: 1, y: 1, z: 0 },
+            ],
+        };
+        Self {
+            kind: kind,
+            position: Vec3i { x: 2, y: 3, z: 0 },
+            blocks: blocks,
             color,
         }
     }
@@ -254,8 +326,8 @@ fn main() {
             depth: 12,
             occupied: Vec::new(),
         },
-        active_figure: Figure::new(FigureColor::Cyan),
-        next_figure: Figure::new(FigureColor::Orange),
+        active_figure: Figure::new(FigureKind::I, FigureColor::Cyan),
+        next_figure: Figure::new(FigureKind::O, FigureColor::Orange),
         show_line: true,
         game_over: false,
     };
@@ -280,6 +352,7 @@ fn main() {
                 handle_input,
                 apply_gravity,
                 sync_figure_position,
+                sync_next_figure_preview,
                 sync_game_over_text,
             )
                 .chain(),
@@ -367,8 +440,8 @@ fn setup(
     };
 
     let block_mesh = block_visuals.mesh.clone();
-
     let block_material = block_visuals.material_for(game.active_figure.color);
+    let preview_material = block_visuals.material_for(game.next_figure.color);
 
     commands.insert_resource(block_visuals);
 
@@ -389,6 +462,22 @@ fn setup(
         commands.spawn(entity);
 
         info!("local {local_block:?} -> world {world_block:?}");
+    }
+
+    for (index, local_block) in game.next_figure.blocks.iter().enumerate() {
+        let preview_scale = 0.7;
+
+        commands.spawn((
+            Mesh3d(block_mesh.clone()),
+            MeshMaterial3d(preview_material.clone()),
+            Transform::from_xyz(
+                7.0 + local_block.x as f32 * preview_scale,
+                3.0 + local_block.y as f32 * preview_scale,
+                local_block.z as f32 * preview_scale,
+            )
+            .with_scale(Vec3::splat(preview_scale)),
+            PreviewBlockIndex { index },
+        ));
     }
 }
 
@@ -529,9 +618,10 @@ fn handle_input(
         }
 
         let following_color = game.next_figure.color.next();
+        let following_kind = game.next_figure.kind.next();
 
         game.active_figure = game.next_figure.clone();
-        game.next_figure = Figure::new(following_color);
+        game.next_figure = Figure::new(following_kind, following_color);
 
         let can_spawn = game.well.can_place_figure(&game.active_figure);
         if !can_spawn {
@@ -562,6 +652,31 @@ fn sync_figure_position(
         );
 
         material.0 = active_material.clone();
+    }
+}
+
+fn sync_next_figure_preview(
+    game: Res<GameModel>,
+    block_visuals: Res<BlockVisualAssets>,
+    mut blocks: Query<(
+        &PreviewBlockIndex,
+        &mut Transform,
+        &mut MeshMaterial3d<StandardMaterial>,
+    )>,
+) {
+    let preview_material = block_visuals.material_for(game.next_figure.color);
+    let preview_scale = 0.7;
+
+    for (block, mut transform, mut material) in &mut blocks {
+        let local_block = game.next_figure.blocks[block.index];
+
+        transform.translation = Vec3::new(
+            7.0 + local_block.x as f32 * preview_scale,
+            3.0 + local_block.y as f32 * preview_scale,
+            local_block.z as f32 * preview_scale,
+        );
+
+        material.0 = preview_material.clone();
     }
 }
 
@@ -628,9 +743,10 @@ fn apply_gravity(
         }
 
         let following_color = game.next_figure.color.next();
+        let following_kind = game.next_figure.kind.next();
 
         game.active_figure = game.next_figure.clone();
-        game.next_figure = Figure::new(following_color);
+        game.next_figure = Figure::new(following_kind, following_color);
 
         let can_spawn = game.well.can_place_figure(&game.active_figure);
 
@@ -724,6 +840,7 @@ mod tests {
         };
 
         let active_figure = Figure {
+            kind: FigureKind::I,
             position: Vec3i { x: 2, y: 3, z: 5 },
             blocks: vec![Vec3i { x: 0, y: 0, z: 0 }, Vec3i { x: 1, y: 0, z: 0 }],
             color: FigureColor::Cyan,
@@ -746,6 +863,7 @@ mod tests {
         };
 
         let active_figure = Figure {
+            kind: FigureKind::I,
             position: Vec3i { x: 2, y: 3, z: 0 },
             blocks: vec![Vec3i { x: 0, y: 0, z: 0 }, Vec3i { x: 1, y: 0, z: 0 }],
             color: FigureColor::Cyan,
@@ -764,6 +882,7 @@ mod tests {
         };
 
         let mut active_figure = Figure {
+            kind: FigureKind::I,
             position: Vec3i { x: 3, y: 3, z: 0 },
             blocks: vec![
                 Vec3i { x: 0, y: 0, z: 0 },
@@ -818,6 +937,7 @@ mod tests {
     #[test]
     fn four_rotations_restore_figure() {
         let original = Figure {
+            kind: FigureKind::I,
             position: Vec3i { x: 2, y: 3, z: 0 },
             blocks: vec![
                 Vec3i { x: 0, y: 0, z: 0 },
