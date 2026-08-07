@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bevy::prelude::Color as BevyColor;
 use bevy::{prelude::*, text::FontSize};
 use rand::seq::SliceRandom;
@@ -9,7 +11,7 @@ enum Axis {
     Z,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Color {
     Cyan,
     Orange,
@@ -18,7 +20,7 @@ enum Color {
     Yellow,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Material {
     Metal,
     Rubber,
@@ -47,11 +49,7 @@ struct Vec3i {
 #[derive(Resource)]
 struct BlockVisualAssets {
     mesh: Handle<Mesh>,
-    cyan: Handle<StandardMaterial>,
-    orange: Handle<StandardMaterial>,
-    green: Handle<StandardMaterial>,
-    purple: Handle<StandardMaterial>,
-    yellow: Handle<StandardMaterial>,
+    materials: HashMap<(Color, Material), Handle<StandardMaterial>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,14 +190,11 @@ impl FigureBag {
 }
 
 impl BlockVisualAssets {
-    fn material_for(&self, color: Color) -> Handle<StandardMaterial> {
-        match color {
-            Color::Cyan => self.cyan.clone(),
-            Color::Orange => self.orange.clone(),
-            Color::Green => self.green.clone(),
-            Color::Purple => self.purple.clone(),
-            Color::Yellow => self.yellow.clone(),
-        }
+    fn material_for(&self, block: Block) -> Handle<StandardMaterial> {
+        self.materials
+            .get(&(block.color, block.material))
+            .expect("every block appearance must have a visual material")
+            .clone()
     }
 }
 
@@ -474,13 +469,51 @@ impl Figure {
     }
 }
 
-fn make_block_material(base_color: BevyColor) -> StandardMaterial {
-    StandardMaterial {
-        base_color,
-        metallic: 0.0,
-        perceptual_roughness: 0.25,
-        ..default()
+fn make_block_material(base_color: BevyColor, material: Material) -> StandardMaterial {
+    match material {
+        Material::Metal => StandardMaterial {
+            base_color,
+            metallic: 1.0,
+            perceptual_roughness: 0.2,
+            ..default()
+        },
+        Material::Rubber => StandardMaterial {
+            base_color,
+            metallic: 0.0,
+            perceptual_roughness: 0.9,
+            ..default()
+        },
+        Material::Crystal => StandardMaterial {
+            base_color,
+            metallic: 0.0,
+            perceptual_roughness: 0.1,
+            specular_transmission: 0.8,
+            diffuse_transmission: 0.2,
+            thickness: 0.7,
+            ior: 1.5,
+            ..default()
+        },
+        Material::Neon => StandardMaterial {
+            base_color,
+            emissive: base_color.to_linear() * 4.0,
+            metallic: 0.0,
+            perceptual_roughness: 0.2,
+            ..default()
+        },
     }
+}
+
+// Boundary between the logical integer grid and Bevy's floating-point world.
+// One logical cell currently corresponds to one Bevy world unit.
+fn logical_position_to_bevy_translation(position: Vec3i) -> Vec3 {
+    Vec3::new(position.x as f32, position.y as f32, position.z as f32)
+}
+
+fn preview_block_translation(block: Block, figure_pivot: Vec3i, scale: f32) -> Vec3 {
+    let preview_origin = Vec3::new(7.0, 3.0, 0.0);
+    let local_position = block.position.relative_to(figure_pivot);
+
+    preview_origin + logical_position_to_bevy_translation(local_position) * scale
 }
 
 fn main() {
@@ -582,47 +615,57 @@ fn setup(
         game.well.width, game.well.height, game.well.depth
     );
 
+    let block_colors = [
+        (Color::Cyan, BevyColor::srgb(0.2, 0.8, 1.0)),
+        (Color::Orange, BevyColor::srgb(1.0, 0.4, 0.1)),
+        (Color::Green, BevyColor::srgb(0.2, 0.9, 0.3)),
+        (Color::Purple, BevyColor::srgb(0.7, 0.2, 1.0)),
+        (Color::Yellow, BevyColor::srgb(1.0, 0.85, 0.1)),
+    ];
+    let block_material_kinds = [
+        Material::Metal,
+        Material::Rubber,
+        Material::Crystal,
+        Material::Neon,
+    ];
+    let mut block_materials = HashMap::new();
+
+    for (color, base_color) in block_colors {
+        for material in block_material_kinds {
+            let visual_material = materials.add(make_block_material(base_color, material));
+            block_materials.insert((color, material), visual_material);
+        }
+    }
+
     let block_visuals = BlockVisualAssets {
         mesh: meshes.add(Cuboid::new(0.9, 0.9, 0.9)),
-        cyan: materials.add(make_block_material(BevyColor::srgb(0.2, 0.8, 1.0))),
-        orange: materials.add(make_block_material(BevyColor::srgb(1.0, 0.4, 0.1))),
-        green: materials.add(make_block_material(BevyColor::srgb(0.2, 0.9, 0.3))),
-        purple: materials.add(make_block_material(BevyColor::srgb(0.7, 0.2, 1.0))),
-        yellow: materials.add(make_block_material(BevyColor::srgb(1.0, 0.85, 0.1))),
+        materials: block_materials,
     };
 
     let block_mesh = block_visuals.mesh.clone();
 
     for (index, block) in game.active_figure.blocks.iter().enumerate() {
         let world_position = block.position;
-        let block_material = block_visuals.material_for(block.color);
+        let block_material = block_visuals.material_for(*block);
 
         commands.spawn((
             Mesh3d(block_mesh.clone()),
             MeshMaterial3d(block_material),
-            Transform::from_xyz(
-                world_position.x as f32,
-                world_position.y as f32,
-                world_position.z as f32,
-            ),
+            Transform::from_translation(logical_position_to_bevy_translation(world_position)),
             FigureBlockIndex { index },
         ));
     }
 
     for (index, block) in game.next_figure.blocks.iter().enumerate() {
         let preview_scale = 0.7;
-        let local_position = block.position.relative_to(game.next_figure.pivot);
-        let preview_material = block_visuals.material_for(block.color);
+        let preview_translation =
+            preview_block_translation(*block, game.next_figure.pivot, preview_scale);
+        let preview_material = block_visuals.material_for(*block);
 
         commands.spawn((
             Mesh3d(block_mesh.clone()),
             MeshMaterial3d(preview_material),
-            Transform::from_xyz(
-                7.0 + local_position.x as f32 * preview_scale,
-                3.0 + local_position.y as f32 * preview_scale,
-                local_position.z as f32 * preview_scale,
-            )
-            .with_scale(Vec3::splat(preview_scale)),
+            Transform::from_translation(preview_translation).with_scale(Vec3::splat(preview_scale)),
             PreviewBlockIndex { index },
         ));
     }
@@ -746,16 +789,10 @@ fn handle_input(
         info!("cleared planes: {}", cleared_planes);
 
         for block in &locked_figure.blocks {
-            let world_position = block.position;
-
             commands.spawn((
                 Mesh3d(block_visuals.mesh.clone()),
-                MeshMaterial3d(block_visuals.material_for(block.color)),
-                Transform::from_xyz(
-                    world_position.x as f32,
-                    world_position.y as f32,
-                    world_position.z as f32,
-                ),
+                MeshMaterial3d(block_visuals.material_for(*block)),
+                Transform::from_translation(logical_position_to_bevy_translation(block.position)),
                 LockedBlock,
             ));
         }
@@ -781,15 +818,10 @@ fn sync_figure_position(
 ) {
     for (block_index, mut transform, mut material) in &mut blocks {
         let block = game.active_figure.blocks[block_index.index];
-        let world_position = block.position;
 
-        transform.translation = Vec3::new(
-            world_position.x as f32,
-            world_position.y as f32,
-            world_position.z as f32,
-        );
+        transform.translation = logical_position_to_bevy_translation(block.position);
 
-        material.0 = block_visuals.material_for(block.color);
+        material.0 = block_visuals.material_for(block);
     }
 }
 
@@ -806,15 +838,11 @@ fn sync_next_figure_preview(
 
     for (block_index, mut transform, mut material) in &mut blocks {
         let block = game.next_figure.blocks[block_index.index];
-        let local_position = block.position.relative_to(game.next_figure.pivot);
 
-        transform.translation = Vec3::new(
-            7.0 + local_position.x as f32 * preview_scale,
-            3.0 + local_position.y as f32 * preview_scale,
-            local_position.z as f32 * preview_scale,
-        );
+        transform.translation =
+            preview_block_translation(block, game.next_figure.pivot, preview_scale);
 
-        material.0 = block_visuals.material_for(block.color);
+        material.0 = block_visuals.material_for(block);
     }
 }
 
@@ -861,16 +889,10 @@ fn apply_gravity(
         }
 
         for block in &locked_figure.blocks {
-            let world_position = block.position;
-
             commands.spawn((
                 Mesh3d(block_visuals.mesh.clone()),
-                MeshMaterial3d(block_visuals.material_for(block.color)),
-                Transform::from_xyz(
-                    world_position.x as f32,
-                    world_position.y as f32,
-                    world_position.z as f32,
-                ),
+                MeshMaterial3d(block_visuals.material_for(*block)),
+                Transform::from_translation(logical_position_to_bevy_translation(block.position)),
                 LockedBlock,
             ));
         }
