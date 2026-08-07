@@ -340,7 +340,7 @@ impl GameModel {
         let next_figure = figure_bag.next_figure();
 
         Self {
-            well: Well::new(5, 5, 12),
+            well: Well::new(6, 6, 12),
             active_figure,
             next_figure,
             show_line: true,
