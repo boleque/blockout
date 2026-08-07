@@ -38,7 +38,7 @@ enum FigureKind {
     Z,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct Vec3i {
     x: i32,
     y: i32,
