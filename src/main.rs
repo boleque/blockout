@@ -104,7 +104,9 @@ struct FigureBlockIndex {
 }
 
 #[derive(Component)]
-struct LockedBlock;
+struct LockedBlock {
+    position: Vec3i,
+}
 
 #[derive(Component)]
 struct GameOverText;
@@ -300,12 +302,12 @@ impl Well {
         }
     }
 
-    fn clear_plane(&mut self, z: i32) -> bool {
+    fn clear_plane(&mut self, z: i32) -> Option<Plane> {
         if !self.is_plane_full(z) {
-            return false;
+            return None;
         }
 
-        self.planes.remove(z as usize);
+        let removed_plane = self.planes.remove(z as usize);
 
         let plane_block_count = (self.width * self.height) as usize;
 
@@ -313,16 +315,16 @@ impl Well {
 
         self.update_block_z_coordinates();
 
-        true
+        Some(removed_plane)
     }
 
-    fn clear_full_planes(&mut self) -> usize {
-        let mut cleared_planes = 0;
+    fn clear_full_planes(&mut self) -> Vec<Plane> {
+        let mut cleared_planes = Vec::new();
         let mut z = self.depth - 1;
 
         while z >= 0 {
-            if self.clear_plane(z) {
-                cleared_planes += 1;
+            if let Some(plane) = self.clear_plane(z) {
+                cleared_planes.push(plane);
             } else {
                 z -= 1;
             }
@@ -789,20 +791,22 @@ fn handle_input(
         game.well.lock_figure(&locked_figure);
 
         let cleared_planes = game.well.clear_full_planes();
-        if cleared_planes > 0 {
-            info!("cleared {} planes", cleared_planes);
+        if cleared_planes.len() > 0 {
+            info!("cleared {} planes", cleared_planes.len());
         }
 
         info!("active_figure locked at {:?}", game.active_figure.pivot);
         info!("occupied cell count: {}", game.well.occupied_count());
-        info!("cleared planes: {}", cleared_planes);
+        info!("cleared planes: {}", cleared_planes.len());
 
         for block in &locked_figure.blocks {
             commands.spawn((
                 Mesh3d(block_visuals.mesh.clone()),
                 MeshMaterial3d(block_visuals.material_for(*block)),
                 Transform::from_translation(logical_position_to_bevy_translation(block.position)),
-                LockedBlock,
+                LockedBlock {
+                    position: block.position,
+                },
             ));
         }
 
@@ -975,8 +979,8 @@ fn apply_gravity(
         game.well.lock_figure(&locked_figure);
 
         let cleared_planes = game.well.clear_full_planes();
-        if cleared_planes > 0 {
-            info!("cleared {} planes", cleared_planes);
+        if cleared_planes.len() > 0 {
+            info!("cleared {} planes", cleared_planes.len());
         }
 
         for block in &locked_figure.blocks {
@@ -984,7 +988,9 @@ fn apply_gravity(
                 Mesh3d(block_visuals.mesh.clone()),
                 MeshMaterial3d(block_visuals.material_for(*block)),
                 Transform::from_translation(logical_position_to_bevy_translation(block.position)),
-                LockedBlock,
+                LockedBlock {
+                    position: block.position,
+                },
             ));
         }
 

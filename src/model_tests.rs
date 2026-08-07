@@ -67,7 +67,7 @@ fn clear_full_planes_removes_multiple_planes() {
 
     let cleared_planes = well.clear_full_planes();
 
-    assert_eq!(cleared_planes, 2);
+    assert_eq!(cleared_planes.len(), 2);
     assert_eq!(well.occupied_count(), 1);
     assert!(well.is_occupied(Vec3i { x: 0, y: 0, z: 3 }));
 }
@@ -88,7 +88,7 @@ fn clearing_full_plane_removes_it_and_shifts_blocks_above() {
         ],
     );
 
-    assert!(well.clear_plane(2));
+    assert!(well.clear_plane(2).is_some());
     assert!(!well.is_occupied(Vec3i { x: 0, y: 0, z: 1 }));
     assert!(well.is_occupied(Vec3i { x: 0, y: 0, z: 2 }));
     assert!(well.is_occupied(Vec3i { x: 1, y: 1, z: 3 }));
