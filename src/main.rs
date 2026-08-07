@@ -197,6 +197,32 @@ impl BlockVisualAssets {
 }
 
 impl Well {
+    fn new(width: i32, height: i32, depth: i32) -> Self {
+        assert!(width > 0);
+        assert!(height > 0);
+        assert!(depth > 0);
+
+        let plane_block_count = (width * height) as usize;
+
+        Self {
+            width,
+            height,
+            depth,
+            planes: vec![Plane::empty(plane_block_count); depth as usize],
+        }
+    }
+
+    fn block_at(&self, position: Vec3i) -> Option<Block> {
+        if !self.contains(position) {
+            return None;
+        }
+
+        let index = self.block_index(position.x, position.y);
+        let plane = &self.planes[position.z as usize];
+
+        plane.blocks[index]
+    }
+
     fn contains(&self, position: Vec3i) -> bool {
         position.x >= 0
             && position.x < self.width
