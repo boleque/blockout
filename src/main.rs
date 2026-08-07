@@ -43,6 +43,17 @@ struct Vec3i {
     z: i32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Cell {
+    color: FigureColor,
+    material: BlockMaterial,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Plane {
+    cells: Vec<Option<Cell>>,
+}
+
 #[derive(Resource)]
 struct BlockVisualAssets {
     mesh: Handle<Mesh>,
@@ -72,6 +83,7 @@ struct Well {
     height: i32,
     depth: i32,
     occupied: Vec<Vec3i>,
+    planes: Vec<Plane>,
 }
 
 #[derive(Resource)]
@@ -166,32 +178,6 @@ impl BlockVisualAssets {
             FigureColor::Green => self.green.clone(),
             FigureColor::Purple => self.purple.clone(),
             FigureColor::Yellow => self.yellow.clone(),
-        }
-    }
-}
-
-impl FigureColor {
-    fn next(self) -> FigureColor {
-        match self {
-            FigureColor::Cyan => FigureColor::Orange,
-            FigureColor::Orange => FigureColor::Green,
-            FigureColor::Green => FigureColor::Purple,
-            FigureColor::Purple => FigureColor::Yellow,
-            FigureColor::Yellow => FigureColor::Cyan,
-        }
-    }
-}
-
-impl FigureKind {
-    fn next(self) -> FigureKind {
-        match self {
-            FigureKind::I => FigureKind::O,
-            FigureKind::O => FigureKind::T,
-            FigureKind::T => FigureKind::L,
-            FigureKind::L => FigureKind::J,
-            FigureKind::J => FigureKind::S,
-            FigureKind::S => FigureKind::Z,
-            FigureKind::Z => FigureKind::I,
         }
     }
 }
