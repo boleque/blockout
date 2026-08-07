@@ -9,7 +9,7 @@ enum Axis {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FigureColor {
+enum Color {
     Cyan,
     Orange,
     Green,
@@ -18,7 +18,7 @@ enum FigureColor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BlockMaterial {
+enum Material {
     Metal,
     Rubber,
     Crystal,
@@ -56,8 +56,8 @@ struct BlockVisualAssets {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Block {
     position: Vec3i,
-    color: FigureColor,
-    material: BlockMaterial,
+    color: Color,
+    material: Material,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,18 +154,18 @@ impl FigureBag {
         ];
 
         let colors = vec![
-            FigureColor::Cyan,
-            FigureColor::Orange,
-            FigureColor::Green,
-            FigureColor::Purple,
-            FigureColor::Yellow,
+            Color::Cyan,
+            Color::Orange,
+            Color::Green,
+            Color::Purple,
+            Color::Yellow,
         ];
 
         let materials = vec![
-            BlockMaterial::Metal,
-            BlockMaterial::Rubber,
-            BlockMaterial::Crystal,
-            BlockMaterial::Neon,
+            Material::Metal,
+            Material::Rubber,
+            Material::Crystal,
+            Material::Neon,
         ];
 
         self.figures = kinds
@@ -191,13 +191,13 @@ impl FigureBag {
 }
 
 impl BlockVisualAssets {
-    fn material_for(&self, color: FigureColor) -> Handle<StandardMaterial> {
+    fn material_for(&self, color: Color) -> Handle<StandardMaterial> {
         match color {
-            FigureColor::Cyan => self.cyan.clone(),
-            FigureColor::Orange => self.orange.clone(),
-            FigureColor::Green => self.green.clone(),
-            FigureColor::Purple => self.purple.clone(),
-            FigureColor::Yellow => self.yellow.clone(),
+            Color::Cyan => self.cyan.clone(),
+            Color::Orange => self.orange.clone(),
+            Color::Green => self.green.clone(),
+            Color::Purple => self.purple.clone(),
+            Color::Yellow => self.yellow.clone(),
         }
     }
 }
@@ -392,7 +392,7 @@ impl Vec3i {
 }
 
 impl Figure {
-    fn new(kind: FigureKind, color: FigureColor, material: BlockMaterial) -> Self {
+    fn new(kind: FigureKind, color: Color, material: Material) -> Self {
         let local_positions = match kind {
             FigureKind::I => vec![
                 Vec3i { x: -1, y: 0, z: 0 },
