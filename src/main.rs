@@ -70,6 +70,9 @@ struct Figure {
     position: Vec3i,
     blocks: Vec<Vec3i>,
     color: FigureColor,
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Plane {
+    blocks: Vec<Option<Block>>,
 }
 
 #[derive(Debug)]
@@ -120,6 +123,17 @@ struct GravityTimer {
     timer: Timer,
 }
 
+impl Plane {
+    fn empty(blocks_count: usize) -> Self {
+        Self {
+            blocks: vec![None; blocks_count],
+        }
+    }
+
+    fn is_full(&self) -> bool {
+        self.blocks.iter().all(Option::is_some)
+    }
+}
 impl FigureBag {
     fn new() -> Self {
         let mut bag = Self {
