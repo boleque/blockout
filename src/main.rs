@@ -1,4 +1,5 @@
 use bevy::{prelude::*, text::FontSize};
+use rand::seq::SliceRandom;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Axis {
@@ -52,6 +53,11 @@ struct Figure {
     color: FigureColor,
 }
 
+#[derive(Debug)]
+struct FigureBag {
+    figures: Vec<Figure>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Well {
     width: i32,
@@ -67,6 +73,7 @@ struct GameModel {
     next_figure: Figure,
     show_line: bool,
     game_over: bool,
+    figure_bag: FigureBag,
 }
 
 #[derive(Component)]
@@ -91,6 +98,56 @@ struct PreviewBlockIndex {
 #[derive(Resource)]
 struct GravityTimer {
     timer: Timer,
+}
+
+impl FigureBag {
+    fn new() -> Self {
+        let mut bag = Self {
+            figures: Vec::new(),
+        };
+        bag.refill();
+
+        bag
+    }
+
+    fn refill(&mut self) {
+        let kinds = vec![
+            FigureKind::I,
+            FigureKind::O,
+            FigureKind::T,
+            FigureKind::L,
+            FigureKind::J,
+            FigureKind::S,
+            FigureKind::Z,
+        ];
+
+        let colors = vec![
+            FigureColor::Cyan,
+            FigureColor::Orange,
+            FigureColor::Green,
+            FigureColor::Purple,
+            FigureColor::Yellow,
+        ];
+
+        self.figures = kinds
+            .into_iter()
+            .zip(colors.into_iter().cycle())
+            .map(|(kind, color)| Figure::new(kind, color))
+            .collect();
+
+        let mut rng = rand::rng();
+        self.figures.shuffle(&mut rng);
+    }
+
+    fn next_figure(&mut self) -> Figure {
+        if self.figures.is_empty() {
+            self.refill();
+        }
+
+        self.figures
+            .pop()
+            .expect("figure bag must contain a figure after refill")
+    }
 }
 
 impl BlockVisualAssets {
@@ -212,6 +269,28 @@ impl Well {
     }
 }
 
+impl GameModel {
+    fn new() -> Self {
+        let mut figure_bag = FigureBag::new();
+        let active_figure = figure_bag.next_figure();
+        let next_figure = figure_bag.next_figure();
+
+        Self {
+            well: Well {
+                width: 5,
+                height: 5,
+                depth: 12,
+                occupied: Vec::new(),
+            },
+            active_figure: active_figure,
+            next_figure: next_figure,
+            show_line: true,
+            game_over: false,
+            figure_bag: figure_bag,
+        }
+    }
+}
+
 impl Vec3i {
     fn rotated_90(self, axis: Axis) -> Self {
         match axis {
@@ -319,21 +398,8 @@ fn make_block_material(base_color: Color) -> StandardMaterial {
 }
 
 fn main() {
-    let game = GameModel {
-        well: Well {
-            width: 5,
-            height: 5,
-            depth: 12,
-            occupied: Vec::new(),
-        },
-        active_figure: Figure::new(FigureKind::I, FigureColor::Cyan),
-        next_figure: Figure::new(FigureKind::O, FigureColor::Orange),
-        show_line: true,
-        game_over: false,
-    };
-
     App::new()
-        .insert_resource(game)
+        .insert_resource(GameModel::new())
         .insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0)))
         .insert_resource(GravityTimer {
             timer: Timer::from_seconds(0.7, TimerMode::Repeating),
@@ -440,6 +506,7 @@ fn setup(
     };
 
     let block_mesh = block_visuals.mesh.clone();
+
     let block_material = block_visuals.material_for(game.active_figure.color);
     let preview_material = block_visuals.material_for(game.next_figure.color);
 
@@ -617,11 +684,8 @@ fn handle_input(
             }
         }
 
-        let following_color = game.next_figure.color.next();
-        let following_kind = game.next_figure.kind.next();
-
         game.active_figure = game.next_figure.clone();
-        game.next_figure = Figure::new(following_kind, following_color);
+        game.next_figure = game.figure_bag.next_figure();
 
         let can_spawn = game.well.can_place_figure(&game.active_figure);
         if !can_spawn {
@@ -742,11 +806,8 @@ fn apply_gravity(
             ));
         }
 
-        let following_color = game.next_figure.color.next();
-        let following_kind = game.next_figure.kind.next();
-
         game.active_figure = game.next_figure.clone();
-        game.next_figure = Figure::new(following_kind, following_color);
+        game.next_figure = game.figure_bag.next_figure();
 
         let can_spawn = game.well.can_place_figure(&game.active_figure);
 
@@ -760,6 +821,32 @@ fn apply_gravity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn figure_bag_returns_every_kind_once_before_refill() {
+        let mut bag = FigureBag::new();
+
+        let figures = (0..7).map(|_| bag.next_figure()).collect::<Vec<_>>();
+
+        let expected_kinds = [
+            FigureKind::I,
+            FigureKind::O,
+            FigureKind::T,
+            FigureKind::L,
+            FigureKind::J,
+            FigureKind::S,
+            FigureKind::Z,
+        ];
+
+        for expected_kind in expected_kinds {
+            let count = figures
+                .iter()
+                .filter(|figure| figure.kind == expected_kind)
+                .count();
+
+            assert_eq!(count, 1);
+        }
+    }
 
     #[test]
     fn clear_full_planes_removes_multiple_planes() {
