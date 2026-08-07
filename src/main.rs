@@ -539,6 +539,7 @@ fn main() {
                 sync_figure_position,
                 sync_next_figure_preview,
                 sync_game_over_text,
+                draw_well,
             )
                 .chain(),
         )
@@ -551,9 +552,17 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    // calculate well center
+    let well_center_x = (game.well.width - 1) as f32 * 0.5;
+    let well_center_y = (game.well.height - 1) as f32 * 0.5;
+    let well_center_z = (game.well.depth - 1) as f32 * 0.5;
+
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(10.0, 8.0, -14.0).looking_at(Vec3::new(2.5, 2.5, 4.0), Vec3::Y),
+        Transform::from_xyz(well_center_x, well_center_y, -12.0).looking_at(
+            Vec3::new(well_center_x, well_center_y, well_center_z),
+            Vec3::Y,
+        ),
         IsDefaultUiCamera,
     ));
 
@@ -853,6 +862,88 @@ fn sync_game_over_text(game: Res<GameModel>, mut text: Query<&mut Visibility, Wi
         } else {
             Visibility::Hidden
         };
+    }
+}
+
+fn draw_well(mut gizmos: Gizmos, game: Res<GameModel>) {
+    let min_x = -0.5;
+    let max_x = game.well.width as f32 - 0.5;
+    let min_y = -0.5;
+    let max_y = game.well.height as f32 - 0.5;
+    let entrance_z = -0.5;
+    let bottom_z = game.well.depth as f32 - 0.5;
+    let wall_color = BevyColor::srgba(0.15, 0.45, 0.65, 0.45);
+    let entrance_color = BevyColor::srgb(0.25, 0.8, 1.0);
+    let bottom_color = BevyColor::srgba(0.25, 0.65, 0.85, 0.7);
+
+    for z_index in 0..=game.well.depth {
+        let z = z_index as f32 - 0.5;
+        let color = if z_index == 0 {
+            entrance_color
+        } else {
+            wall_color
+        };
+
+        gizmos.line(
+            Vec3::new(min_x, min_y, z),
+            Vec3::new(max_x, min_y, z),
+            color,
+        );
+        gizmos.line(
+            Vec3::new(max_x, min_y, z),
+            Vec3::new(max_x, max_y, z),
+            color,
+        );
+        gizmos.line(
+            Vec3::new(max_x, max_y, z),
+            Vec3::new(min_x, max_y, z),
+            color,
+        );
+        gizmos.line(
+            Vec3::new(min_x, max_y, z),
+            Vec3::new(min_x, min_y, z),
+            color,
+        );
+    }
+
+    for x_index in 0..=game.well.width {
+        let x = x_index as f32 - 0.5;
+
+        gizmos.line(
+            Vec3::new(x, min_y, entrance_z),
+            Vec3::new(x, min_y, bottom_z),
+            wall_color,
+        );
+        gizmos.line(
+            Vec3::new(x, max_y, entrance_z),
+            Vec3::new(x, max_y, bottom_z),
+            wall_color,
+        );
+        gizmos.line(
+            Vec3::new(x, min_y, bottom_z),
+            Vec3::new(x, max_y, bottom_z),
+            bottom_color,
+        );
+    }
+
+    for y_index in 0..=game.well.height {
+        let y = y_index as f32 - 0.5;
+
+        gizmos.line(
+            Vec3::new(min_x, y, entrance_z),
+            Vec3::new(min_x, y, bottom_z),
+            wall_color,
+        );
+        gizmos.line(
+            Vec3::new(max_x, y, entrance_z),
+            Vec3::new(max_x, y, bottom_z),
+            wall_color,
+        );
+        gizmos.line(
+            Vec3::new(min_x, y, bottom_z),
+            Vec3::new(max_x, y, bottom_z),
+            bottom_color,
+        );
     }
 }
 
