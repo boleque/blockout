@@ -3,8 +3,8 @@ use super::*;
 fn test_block(position: Vec3i) -> Block {
     Block {
         position,
-        color: FigureColor::Cyan,
-        material: BlockMaterial::Metal,
+        color: Color::Cyan,
+        material: Material::Metal,
     }
 }
 
@@ -190,7 +190,7 @@ fn rotation_order_matters() {
 
 #[test]
 fn four_rotations_restore_figure() {
-    let original = Figure::new(FigureKind::T, FigureColor::Cyan, BlockMaterial::Metal);
+    let original = Figure::new(FigureKind::T, Color::Cyan, Material::Metal);
 
     for axis in [Axis::X, Axis::Y, Axis::Z] {
         let mut rotated = original.clone();
