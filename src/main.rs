@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-
 use bevy::prelude::Color as BevyColor;
 use bevy::{prelude::*, text::FontSize};
 use rand::seq::SliceRandom;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Axis {
