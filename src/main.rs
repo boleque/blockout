@@ -689,6 +689,7 @@ fn handle_input(
     mut game: ResMut<GameModel>,
     block_visuals: Res<BlockVisualAssets>,
     mut line: Query<&mut Visibility, With<DebugLine>>,
+    locked_blocks: Query<(Entity, &LockedBlock)>,
 ) {
     if game.game_over {
         return;
@@ -789,7 +790,20 @@ fn handle_input(
         let locked_figure = game.active_figure.clone();
         game.well.lock_figure(&locked_figure);
 
-        let cleared_planes = game.well.clear_full_planes();
+        // Clear full planes and collect the cleared planes
+        let cleared_planes: Vec<Plane> = game.well.clear_full_planes();
+        let cleared_positions = cleared_planes
+            .iter()
+            .flat_map(|plane| plane.blocks.iter().flatten())
+            .map(|block| block.position)
+            .collect::<HashSet<_>>();
+
+        for (entity, locked_block) in &locked_blocks {
+            if cleared_positions.contains(&locked_block.position) {
+                commands.entity(entity).despawn();
+            }
+        }
+
         if cleared_planes.len() > 0 {
             info!("cleared {} planes", cleared_planes.len());
         }
@@ -799,6 +813,10 @@ fn handle_input(
         info!("cleared planes: {}", cleared_planes.len());
 
         for block in &locked_figure.blocks {
+            if cleared_positions.contains(&block.position) {
+                continue;
+            }
+
             commands.spawn((
                 Mesh3d(block_visuals.mesh.clone()),
                 MeshMaterial3d(block_visuals.material_for(*block)),
@@ -956,6 +974,7 @@ fn apply_gravity(
     mut gravity: ResMut<GravityTimer>,
     mut game: ResMut<GameModel>,
     block_visuals: Res<BlockVisualAssets>,
+    locked_blocks: Query<(Entity, &LockedBlock)>,
 ) {
     if game.game_over {
         return;
@@ -978,11 +997,27 @@ fn apply_gravity(
         game.well.lock_figure(&locked_figure);
 
         let cleared_planes = game.well.clear_full_planes();
+        let cleared_positions = cleared_planes
+            .iter()
+            .flat_map(|plane| plane.blocks.iter().flatten())
+            .map(|block| block.position)
+            .collect::<HashSet<_>>();
+
+        for (entity, locked_block) in &locked_blocks {
+            if cleared_positions.contains(&locked_block.position) {
+                commands.entity(entity).despawn();
+            }
+        }
+
         if cleared_planes.len() > 0 {
             info!("cleared {} planes", cleared_planes.len());
         }
 
         for block in &locked_figure.blocks {
+            if cleared_positions.contains(&block.position) {
+                continue;
+            }
+
             commands.spawn((
                 Mesh3d(block_visuals.mesh.clone()),
                 MeshMaterial3d(block_visuals.material_for(*block)),
