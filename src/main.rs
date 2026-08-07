@@ -43,17 +43,6 @@ struct Vec3i {
     z: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Cell {
-    color: FigureColor,
-    material: BlockMaterial,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Plane {
-    cells: Vec<Option<Cell>>,
-}
-
 #[derive(Resource)]
 struct BlockVisualAssets {
     mesh: Handle<Mesh>,
@@ -64,12 +53,21 @@ struct BlockVisualAssets {
     yellow: Handle<StandardMaterial>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Block {
+    position: Vec3i,
+    color: FigureColor,
+    material: BlockMaterial,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Figure {
     kind: FigureKind,
-    position: Vec3i,
-    blocks: Vec<Vec3i>,
-    color: FigureColor,
+    // world coordinate
+    pivot: Vec3i,
+    blocks: Vec<Block>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Plane {
     blocks: Vec<Option<Block>>,
@@ -85,7 +83,6 @@ struct Well {
     width: i32,
     height: i32,
     depth: i32,
-    occupied: Vec<Vec3i>,
     planes: Vec<Plane>,
 }
 
@@ -134,6 +131,7 @@ impl Plane {
         self.blocks.iter().all(Option::is_some)
     }
 }
+
 impl FigureBag {
     fn new() -> Self {
         let mut bag = Self {
@@ -163,10 +161,18 @@ impl FigureBag {
             FigureColor::Yellow,
         ];
 
+        let materials = vec![
+            BlockMaterial::Metal,
+            BlockMaterial::Rubber,
+            BlockMaterial::Crystal,
+            BlockMaterial::Neon,
+        ];
+
         self.figures = kinds
             .into_iter()
             .zip(colors.into_iter().cycle())
-            .map(|(kind, color)| Figure::new(kind, color))
+            .zip(materials.into_iter().cycle())
+            .map(|((kind, color), material)| Figure::new(kind, color, material))
             .collect();
 
         let mut rng = rand::rng();
@@ -212,17 +218,6 @@ impl Well {
         }
     }
 
-    fn block_at(&self, position: Vec3i) -> Option<Block> {
-        if !self.contains(position) {
-            return None;
-        }
-
-        let index = self.block_index(position.x, position.y);
-        let plane = &self.planes[position.z as usize];
-
-        plane.blocks[index]
-    }
-
     fn contains(&self, position: Vec3i) -> bool {
         position.x >= 0
             && position.x < self.width
@@ -232,11 +227,54 @@ impl Well {
             && position.z < self.depth
     }
 
-    fn can_place_figure(&self, active_figure: &Figure) -> bool {
-        for local_block in &active_figure.blocks {
-            let world_block = active_figure.world_position(*local_block);
+    fn plane_slot_index(&self, position: Vec3i) -> usize {
+        assert!(self.contains(position));
 
-            if !self.contains(world_block) || self.is_occupied(world_block) {
+        (position.y * self.width + position.x) as usize
+    }
+
+    fn block_at(&self, position: Vec3i) -> Option<Block> {
+        if !self.contains(position) {
+            return None;
+        }
+
+        let plane_index = position.z as usize;
+        let slot_index = self.plane_slot_index(position);
+
+        self.planes[plane_index].blocks[slot_index]
+    }
+
+    fn is_occupied(&self, position: Vec3i) -> bool {
+        self.block_at(position).is_some()
+    }
+
+    fn place_block(&mut self, block: Block) {
+        assert!(self.contains(block.position));
+
+        let plane_index = block.position.z as usize;
+        let slot_index = self.plane_slot_index(block.position);
+
+        let slot = &mut self.planes[plane_index].blocks[slot_index];
+
+        assert!(
+            slot.is_none(),
+            "cannot place two blocks in the same position"
+        );
+
+        *slot = Some(block);
+    }
+
+    fn occupied_count(&self) -> usize {
+        self.planes
+            .iter()
+            .flat_map(|plane| plane.blocks.iter())
+            .filter(|block| block.is_some())
+            .count()
+    }
+
+    fn can_place_figure(&self, figure: &Figure) -> bool {
+        for block in &figure.blocks {
+            if !self.contains(block.position) || self.is_occupied(block.position) {
                 return false;
             }
         }
@@ -244,14 +282,9 @@ impl Well {
         true
     }
 
-    fn is_occupied(&self, position: Vec3i) -> bool {
-        self.occupied.contains(&position)
-    }
-
-    fn lock_figure(&mut self, active_figure: &Figure) {
-        for local_block in &active_figure.blocks {
-            let world_block = active_figure.world_position(*local_block);
-            self.occupied.push(world_block);
+    fn lock_figure(&mut self, figure: &Figure) {
+        for block in &figure.blocks {
+            self.place_block(*block);
         }
     }
 
@@ -260,15 +293,15 @@ impl Well {
             return false;
         }
 
-        for x in 0..self.width {
-            for y in 0..self.height {
-                if !self.is_occupied(Vec3i { x, y, z }) {
-                    return false;
-                }
+        self.planes[z as usize].is_full()
+    }
+
+    fn update_block_z_coordinates(&mut self) {
+        for (z, plane) in self.planes.iter_mut().enumerate() {
+            for block in plane.blocks.iter_mut().flatten() {
+                block.position.z = z as i32;
             }
         }
-
-        true
     }
 
     fn clear_plane(&mut self, z: i32) -> bool {
@@ -276,13 +309,13 @@ impl Well {
             return false;
         }
 
-        self.occupied.retain(|position| position.z != z);
+        self.planes.remove(z as usize);
 
-        for position in &mut self.occupied {
-            if position.z < z {
-                position.z += 1;
-            }
-        }
+        let plane_block_count = (self.width * self.height) as usize;
+
+        self.planes.insert(0, Plane::empty(plane_block_count));
+
+        self.update_block_z_coordinates();
 
         true
     }
@@ -310,22 +343,33 @@ impl GameModel {
         let next_figure = figure_bag.next_figure();
 
         Self {
-            well: Well {
-                width: 5,
-                height: 5,
-                depth: 12,
-                occupied: Vec::new(),
-            },
-            active_figure: active_figure,
-            next_figure: next_figure,
+            well: Well::new(5, 5, 12),
+            active_figure,
+            next_figure,
             show_line: true,
             game_over: false,
-            figure_bag: figure_bag,
+            figure_bag,
         }
     }
 }
 
 impl Vec3i {
+    fn translated(self, delta: Vec3i) -> Self {
+        Self {
+            x: self.x + delta.x,
+            y: self.y + delta.y,
+            z: self.z + delta.z,
+        }
+    }
+
+    fn relative_to(self, origin: Vec3i) -> Self {
+        Self {
+            x: self.x - origin.x,
+            y: self.y - origin.y,
+            z: self.z - origin.z,
+        }
+    }
+
     fn rotated_90(self, axis: Axis) -> Self {
         match axis {
             Axis::X => Self {
@@ -348,8 +392,8 @@ impl Vec3i {
 }
 
 impl Figure {
-    fn new(kind: FigureKind, color: FigureColor) -> Self {
-        let blocks = match kind {
+    fn new(kind: FigureKind, color: FigureColor, material: BlockMaterial) -> Self {
+        let local_positions = match kind {
             FigureKind::I => vec![
                 Vec3i { x: -1, y: 0, z: 0 },
                 Vec3i { x: 0, y: 0, z: 0 },
@@ -393,31 +437,38 @@ impl Figure {
                 Vec3i { x: 1, y: 1, z: 0 },
             ],
         };
-        Self {
-            kind: kind,
-            position: Vec3i { x: 2, y: 3, z: 0 },
-            blocks: blocks,
-            color,
-        }
-    }
 
-    fn world_position(&self, local_block: Vec3i) -> Vec3i {
-        Vec3i {
-            x: self.position.x + local_block.x,
-            y: self.position.y + local_block.y,
-            z: self.position.z + local_block.z,
+        let pivot = Vec3i { x: 2, y: 3, z: 0 };
+
+        let blocks = local_positions
+            .into_iter()
+            .map(|local_position| Block {
+                position: pivot.translated(local_position),
+                color,
+                material,
+            })
+            .collect();
+
+        Self {
+            kind,
+            pivot,
+            blocks,
         }
     }
 
     fn move_by(&mut self, delta: Vec3i) {
-        self.position.x += delta.x;
-        self.position.y += delta.y;
-        self.position.z += delta.z;
+        self.pivot = self.pivot.translated(delta);
+
+        for block in &mut self.blocks {
+            block.position = block.position.translated(delta);
+        }
     }
 
     fn rotate_90(&mut self, axis: Axis) {
         for block in &mut self.blocks {
-            *block = (*block).rotated_90(axis);
+            let local_position = block.position.relative_to(self.pivot);
+            let rotated_position = local_position.rotated_90(axis);
+            block.position = self.pivot.translated(rotated_position);
         }
     }
 }
@@ -541,57 +592,49 @@ fn setup(
 
     let block_mesh = block_visuals.mesh.clone();
 
-    let block_material = block_visuals.material_for(game.active_figure.color);
-    let preview_material = block_visuals.material_for(game.next_figure.color);
-
-    commands.insert_resource(block_visuals);
-
-    for (index, local_block) in game.active_figure.blocks.iter().enumerate() {
-        let world_block = game.active_figure.world_position(*local_block);
-
-        let entity = (
-            Mesh3d(block_mesh.clone()),
-            MeshMaterial3d(block_material.clone()),
-            Transform::from_xyz(
-                world_block.x as f32,
-                world_block.y as f32,
-                world_block.z as f32,
-            ),
-            FigureBlockIndex { index },
-        );
-
-        commands.spawn(entity);
-
-        info!("local {local_block:?} -> world {world_block:?}");
-    }
-
-    for (index, local_block) in game.next_figure.blocks.iter().enumerate() {
-        let preview_scale = 0.7;
+    for (index, block) in game.active_figure.blocks.iter().enumerate() {
+        let world_position = block.position;
+        let block_material = block_visuals.material_for(block.color);
 
         commands.spawn((
             Mesh3d(block_mesh.clone()),
-            MeshMaterial3d(preview_material.clone()),
+            MeshMaterial3d(block_material),
             Transform::from_xyz(
-                7.0 + local_block.x as f32 * preview_scale,
-                3.0 + local_block.y as f32 * preview_scale,
-                local_block.z as f32 * preview_scale,
+                world_position.x as f32,
+                world_position.y as f32,
+                world_position.z as f32,
+            ),
+            FigureBlockIndex { index },
+        ));
+    }
+
+    for (index, block) in game.next_figure.blocks.iter().enumerate() {
+        let preview_scale = 0.7;
+        let local_position = block.position.relative_to(game.next_figure.pivot);
+        let preview_material = block_visuals.material_for(block.color);
+
+        commands.spawn((
+            Mesh3d(block_mesh.clone()),
+            MeshMaterial3d(preview_material),
+            Transform::from_xyz(
+                7.0 + local_position.x as f32 * preview_scale,
+                3.0 + local_position.y as f32 * preview_scale,
+                local_position.z as f32 * preview_scale,
             )
             .with_scale(Vec3::splat(preview_scale)),
             PreviewBlockIndex { index },
         ));
     }
+
+    commands.insert_resource(block_visuals);
 }
 
 fn handle_input(
     mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut game: ResMut<GameModel>,
+    block_visuals: Res<BlockVisualAssets>,
     mut line: Query<&mut Visibility, With<DebugLine>>,
-    figure_blocks: Query<(
-        &FigureBlockIndex,
-        &Mesh3d,
-        &MeshMaterial3d<StandardMaterial>,
-    )>,
 ) {
     if game.game_over {
         return;
@@ -621,7 +664,7 @@ fn handle_input(
 
         if game.well.can_place_figure(&candidate) {
             game.active_figure = candidate;
-            info!("active_figure position: {:?}", game.active_figure.position);
+            info!("active_figure position: {:?}", game.active_figure.pivot);
         } else {
             info!("movement blocked by well bounds");
         }
@@ -697,25 +740,23 @@ fn handle_input(
             info!("cleared {} planes", cleared_planes);
         }
 
-        info!("active_figure locked at {:?}", game.active_figure.position);
-        info!("occupied cells: {:?}", game.well.occupied);
+        info!("active_figure locked at {:?}", game.active_figure.pivot);
+        info!("occupied cell count: {}", game.well.occupied_count());
         info!("cleared planes: {}", cleared_planes);
 
-        if let Some((_block_index, mesh, material)) = figure_blocks.iter().next() {
-            for local_block in &locked_figure.blocks {
-                let world_block = locked_figure.world_position(*local_block);
+        for block in &locked_figure.blocks {
+            let world_position = block.position;
 
-                commands.spawn((
-                    Mesh3d(mesh.0.clone()),
-                    MeshMaterial3d(material.0.clone()),
-                    Transform::from_xyz(
-                        world_block.x as f32,
-                        world_block.y as f32,
-                        world_block.z as f32,
-                    ),
-                    LockedBlock,
-                ));
-            }
+            commands.spawn((
+                Mesh3d(block_visuals.mesh.clone()),
+                MeshMaterial3d(block_visuals.material_for(block.color)),
+                Transform::from_xyz(
+                    world_position.x as f32,
+                    world_position.y as f32,
+                    world_position.z as f32,
+                ),
+                LockedBlock,
+            ));
         }
 
         game.active_figure = game.next_figure.clone();
@@ -737,19 +778,17 @@ fn sync_figure_position(
         &mut MeshMaterial3d<StandardMaterial>,
     )>,
 ) {
-    let active_material = block_visuals.material_for(game.active_figure.color);
-
-    for (block, mut transform, mut material) in &mut blocks {
-        let local_block = game.active_figure.blocks[block.index];
-        let world_block = game.active_figure.world_position(local_block);
+    for (block_index, mut transform, mut material) in &mut blocks {
+        let block = game.active_figure.blocks[block_index.index];
+        let world_position = block.position;
 
         transform.translation = Vec3::new(
-            world_block.x as f32,
-            world_block.y as f32,
-            world_block.z as f32,
+            world_position.x as f32,
+            world_position.y as f32,
+            world_position.z as f32,
         );
 
-        material.0 = active_material.clone();
+        material.0 = block_visuals.material_for(block.color);
     }
 }
 
@@ -762,19 +801,19 @@ fn sync_next_figure_preview(
         &mut MeshMaterial3d<StandardMaterial>,
     )>,
 ) {
-    let preview_material = block_visuals.material_for(game.next_figure.color);
     let preview_scale = 0.7;
 
-    for (block, mut transform, mut material) in &mut blocks {
-        let local_block = game.next_figure.blocks[block.index];
+    for (block_index, mut transform, mut material) in &mut blocks {
+        let block = game.next_figure.blocks[block_index.index];
+        let local_position = block.position.relative_to(game.next_figure.pivot);
 
         transform.translation = Vec3::new(
-            7.0 + local_block.x as f32 * preview_scale,
-            3.0 + local_block.y as f32 * preview_scale,
-            local_block.z as f32 * preview_scale,
+            7.0 + local_position.x as f32 * preview_scale,
+            3.0 + local_position.y as f32 * preview_scale,
+            local_position.z as f32 * preview_scale,
         );
 
-        material.0 = preview_material.clone();
+        material.0 = block_visuals.material_for(block.color);
     }
 }
 
@@ -793,11 +832,7 @@ fn apply_gravity(
     time: Res<Time>,
     mut gravity: ResMut<GravityTimer>,
     mut game: ResMut<GameModel>,
-    figure_blocks: Query<(
-        &FigureBlockIndex,
-        &Mesh3d,
-        &MeshMaterial3d<StandardMaterial>,
-    )>,
+    block_visuals: Res<BlockVisualAssets>,
 ) {
     if game.game_over {
         return;
@@ -824,17 +859,16 @@ fn apply_gravity(
             info!("cleared {} planes", cleared_planes);
         }
 
-        for (block_index, mesh, material) in &figure_blocks {
-            let local_block = locked_figure.blocks[block_index.index];
-            let world_block = locked_figure.world_position(local_block);
+        for block in &locked_figure.blocks {
+            let world_position = block.position;
 
             commands.spawn((
-                Mesh3d(mesh.0.clone()),
-                MeshMaterial3d(material.0.clone()),
+                Mesh3d(block_visuals.mesh.clone()),
+                MeshMaterial3d(block_visuals.material_for(block.color)),
                 Transform::from_xyz(
-                    world_block.x as f32,
-                    world_block.y as f32,
-                    world_block.z as f32,
+                    world_position.x as f32,
+                    world_position.y as f32,
+                    world_position.z as f32,
                 ),
                 LockedBlock,
             ));
@@ -853,232 +887,4 @@ fn apply_gravity(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn figure_bag_returns_every_kind_once_before_refill() {
-        let mut bag = FigureBag::new();
-
-        let figures = (0..7).map(|_| bag.next_figure()).collect::<Vec<_>>();
-
-        let expected_kinds = [
-            FigureKind::I,
-            FigureKind::O,
-            FigureKind::T,
-            FigureKind::L,
-            FigureKind::J,
-            FigureKind::S,
-            FigureKind::Z,
-        ];
-
-        for expected_kind in expected_kinds {
-            let count = figures
-                .iter()
-                .filter(|figure| figure.kind == expected_kind)
-                .count();
-
-            assert_eq!(count, 1);
-        }
-    }
-
-    #[test]
-    fn clear_full_planes_removes_multiple_planes() {
-        let mut well = Well {
-            width: 2,
-            height: 1,
-            depth: 4,
-            occupied: vec![
-                Vec3i { x: 0, y: 0, z: 1 },
-                Vec3i { x: 0, y: 0, z: 2 },
-                Vec3i { x: 1, y: 0, z: 2 },
-                Vec3i { x: 0, y: 0, z: 3 },
-                Vec3i { x: 1, y: 0, z: 3 },
-            ],
-        };
-
-        let cleared_planes = well.clear_full_planes();
-
-        assert_eq!(cleared_planes, 2);
-        assert_eq!(well.occupied.len(), 1);
-        assert!(well.is_occupied(Vec3i { x: 0, y: 0, z: 3 }));
-    }
-
-    #[test]
-    fn clearing_full_plane_removes_it_and_shifts_cells_above() {
-        let mut well = Well {
-            width: 2,
-            height: 2,
-            depth: 4,
-            occupied: vec![
-                Vec3i { x: 0, y: 0, z: 2 },
-                Vec3i { x: 1, y: 0, z: 2 },
-                Vec3i { x: 0, y: 1, z: 2 },
-                Vec3i { x: 1, y: 1, z: 2 },
-                Vec3i { x: 0, y: 0, z: 1 },
-                Vec3i { x: 1, y: 1, z: 3 },
-            ],
-        };
-
-        let cleared = well.clear_plane(2);
-
-        assert!(cleared);
-
-        assert!(!well.is_occupied(Vec3i { x: 0, y: 0, z: 1 }));
-        assert!(well.is_occupied(Vec3i { x: 0, y: 0, z: 2 }));
-        assert!(well.is_occupied(Vec3i { x: 1, y: 1, z: 3 }));
-
-        assert_eq!(well.occupied.len(), 2);
-    }
-
-    #[test]
-    fn plane_is_full_when_all_its_cells_are_occupied() {
-        let well = Well {
-            width: 2,
-            height: 2,
-            depth: 3,
-            occupied: vec![
-                Vec3i { x: 0, y: 0, z: 2 },
-                Vec3i { x: 1, y: 0, z: 2 },
-                Vec3i { x: 0, y: 1, z: 2 },
-                Vec3i { x: 1, y: 1, z: 2 },
-            ],
-        };
-
-        assert!(well.is_plane_full(2));
-        assert!(!well.is_plane_full(1));
-        assert!(!well.is_plane_full(-1));
-        assert!(!well.is_plane_full(3));
-    }
-
-    #[test]
-    fn locking_figure_marks_its_world_cells_as_occupied() {
-        let mut well = Well {
-            width: 5,
-            height: 5,
-            depth: 12,
-            occupied: Vec::new(),
-        };
-
-        let active_figure = Figure {
-            kind: FigureKind::I,
-            position: Vec3i { x: 2, y: 3, z: 5 },
-            blocks: vec![Vec3i { x: 0, y: 0, z: 0 }, Vec3i { x: 1, y: 0, z: 0 }],
-            color: FigureColor::Cyan,
-        };
-
-        well.lock_figure(&active_figure);
-
-        assert!(well.is_occupied(Vec3i { x: 2, y: 3, z: 5 }));
-        assert!(well.is_occupied(Vec3i { x: 3, y: 3, z: 5 }));
-        assert_eq!(well.occupied.len(), 2);
-    }
-
-    #[test]
-    fn well_rejects_figure_overlapping_occupied_cell() {
-        let well = Well {
-            width: 5,
-            height: 5,
-            depth: 12,
-            occupied: vec![Vec3i { x: 3, y: 3, z: 0 }],
-        };
-
-        let active_figure = Figure {
-            kind: FigureKind::I,
-            position: Vec3i { x: 2, y: 3, z: 0 },
-            blocks: vec![Vec3i { x: 0, y: 0, z: 0 }, Vec3i { x: 1, y: 0, z: 0 }],
-            color: FigureColor::Cyan,
-        };
-
-        assert!(!well.can_place_figure(&active_figure));
-    }
-
-    #[test]
-    fn well_can_place_figure_using_world_positions() {
-        let well = Well {
-            width: 5,
-            height: 5,
-            depth: 12,
-            occupied: Vec::new(),
-        };
-
-        let mut active_figure = Figure {
-            kind: FigureKind::I,
-            position: Vec3i { x: 3, y: 3, z: 0 },
-            blocks: vec![
-                Vec3i { x: 0, y: 0, z: 0 },
-                Vec3i { x: 1, y: 0, z: 0 },
-                Vec3i { x: 1, y: 1, z: 0 },
-            ],
-            color: FigureColor::Cyan,
-        };
-
-        assert!(well.can_place_figure(&active_figure));
-
-        active_figure.position.x += 1;
-
-        assert!(!well.can_place_figure(&active_figure));
-    }
-
-    #[test]
-    fn well_contains_only_positions_inside_bounds() {
-        let well = Well {
-            width: 5,
-            height: 5,
-            depth: 12,
-            occupied: Vec::new(),
-        };
-
-        assert!(well.contains(Vec3i { x: 0, y: 0, z: 0 }));
-        assert!(well.contains(Vec3i { x: 4, y: 4, z: 11 }));
-
-        assert!(!well.contains(Vec3i { x: -1, y: 0, z: 0 }));
-        assert!(!well.contains(Vec3i { x: 5, y: 0, z: 0 }));
-
-        assert!(!well.contains(Vec3i { x: 0, y: -1, z: 0 }));
-        assert!(!well.contains(Vec3i { x: 0, y: 5, z: 0 }));
-
-        assert!(!well.contains(Vec3i { x: 0, y: 0, z: -1 }));
-        assert!(!well.contains(Vec3i { x: 0, y: 0, z: 12 }));
-    }
-
-    #[test]
-    fn rotation_order_matters() {
-        let original = Vec3i { x: 1, y: 2, z: 3 };
-
-        let x_then_y = original.rotated_90(Axis::X).rotated_90(Axis::Y);
-
-        let y_then_x = original.rotated_90(Axis::Y).rotated_90(Axis::X);
-
-        assert_eq!(x_then_y, Vec3i { x: 2, y: -3, z: -1 });
-        assert_eq!(y_then_x, Vec3i { x: 3, y: 1, z: 2 });
-        assert_ne!(x_then_y, y_then_x);
-    }
-
-    #[test]
-    fn four_rotations_restore_figure() {
-        let original = Figure {
-            kind: FigureKind::I,
-            position: Vec3i { x: 2, y: 3, z: 0 },
-            blocks: vec![
-                Vec3i { x: 0, y: 0, z: 0 },
-                Vec3i { x: 1, y: 0, z: 0 },
-                Vec3i { x: 1, y: 1, z: 0 },
-            ],
-            color: FigureColor::Cyan,
-        };
-
-        for axis in [Axis::X, Axis::Y, Axis::Z] {
-            let mut rotated = original.clone();
-
-            for _ in 0..4 {
-                rotated.rotate_90(axis);
-            }
-
-            assert_eq!(
-                rotated, original,
-                "four rotations around {axis:?} must restore the active_figure"
-            );
-        }
-    }
-}
+mod model_tests;
