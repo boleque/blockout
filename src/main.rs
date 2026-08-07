@@ -18,6 +18,14 @@ enum FigureColor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlockMaterial {
+    Metal,
+    Rubber,
+    Crystal,
+    Neon,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FigureKind {
     I,
     O,
