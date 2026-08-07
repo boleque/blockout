@@ -1,3 +1,4 @@
+use bevy::prelude::Color as BevyColor;
 use bevy::{prelude::*, text::FontSize};
 use rand::seq::SliceRandom;
 
@@ -473,7 +474,7 @@ impl Figure {
     }
 }
 
-fn make_block_material(base_color: Color) -> StandardMaterial {
+fn make_block_material(base_color: BevyColor) -> StandardMaterial {
     StandardMaterial {
         base_color,
         metallic: 0.0,
@@ -485,7 +486,7 @@ fn make_block_material(base_color: Color) -> StandardMaterial {
 fn main() {
     App::new()
         .insert_resource(GameModel::new())
-        .insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0)))
+        .insert_resource(ClearColor(BevyColor::srgb(0.0, 0.0, 0.0)))
         .insert_resource(GravityTimer {
             timer: Timer::from_seconds(0.7, TimerMode::Repeating),
         })
@@ -537,7 +538,7 @@ fn setup(
             font_size: FontSize::Px(20.0),
             ..default()
         },
-        TextColor(Color::srgb(1.0, 1.0, 1.0)),
+        TextColor(BevyColor::srgb(1.0, 1.0, 1.0)),
         Node {
             position_type: PositionType::Absolute,
             top: px(20.0),
@@ -555,7 +556,7 @@ fn setup(
             height: px(4.0),
             ..default()
         },
-        BackgroundColor(Color::srgb(0.0, 1.0, 0.0)),
+        BackgroundColor(BevyColor::srgb(0.0, 1.0, 0.0)),
         DebugLine,
     ));
 
@@ -565,7 +566,7 @@ fn setup(
             font_size: FontSize::Px(48.0),
             ..default()
         },
-        TextColor(Color::srgb(1.0, 0.2, 0.2)),
+        TextColor(BevyColor::srgb(1.0, 0.2, 0.2)),
         Node {
             position_type: PositionType::Absolute,
             top: px(250.0),
@@ -583,11 +584,11 @@ fn setup(
 
     let block_visuals = BlockVisualAssets {
         mesh: meshes.add(Cuboid::new(0.9, 0.9, 0.9)),
-        cyan: materials.add(make_block_material(Color::srgb(0.2, 0.8, 1.0))),
-        orange: materials.add(make_block_material(Color::srgb(1.0, 0.4, 0.1))),
-        green: materials.add(make_block_material(Color::srgb(0.2, 0.9, 0.3))),
-        purple: materials.add(make_block_material(Color::srgb(0.7, 0.2, 1.0))),
-        yellow: materials.add(make_block_material(Color::srgb(1.0, 0.85, 0.1))),
+        cyan: materials.add(make_block_material(BevyColor::srgb(0.2, 0.8, 1.0))),
+        orange: materials.add(make_block_material(BevyColor::srgb(1.0, 0.4, 0.1))),
+        green: materials.add(make_block_material(BevyColor::srgb(0.2, 0.9, 0.3))),
+        purple: materials.add(make_block_material(BevyColor::srgb(0.7, 0.2, 1.0))),
+        yellow: materials.add(make_block_material(BevyColor::srgb(1.0, 0.85, 0.1))),
     };
 
     let block_mesh = block_visuals.mesh.clone();
