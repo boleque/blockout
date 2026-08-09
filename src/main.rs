@@ -3,6 +3,8 @@ use bevy::{prelude::*, text::FontSize};
 use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 
+const DESTROYING_BLOCK_LIFETIME_SECONDS: f32 = 0.8;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Axis {
     X,
@@ -120,6 +122,11 @@ struct GravityTimer {
     timer: Timer,
 }
 
+#[derive(Component)]
+struct DestroyingBlock {
+    lifetime: Timer,
+}
+
 impl Plane {
     fn empty(blocks_count: usize) -> Self {
         Self {
@@ -154,8 +161,8 @@ impl FigureBag {
         ];
 
         let colors = vec![
-            Color::Cyan,
             Color::Orange,
+            Color::Cyan,
             Color::Green,
             Color::Purple,
             Color::Yellow,
@@ -541,6 +548,7 @@ fn main() {
                 sync_next_figure_preview,
                 sync_game_over_text,
                 draw_well,
+                animate_destroying_blocks,
             )
                 .chain(),
         )
@@ -804,6 +812,29 @@ fn handle_input(
             }
         }
 
+        for plane in &cleared_planes {
+            for block in plane.blocks.iter().flatten() {
+                let neon_block = Block {
+                    color: Color::Yellow,
+                    material: Material::Neon,
+                    ..*block
+                };
+                commands.spawn((
+                    Mesh3d(block_visuals.mesh.clone()),
+                    MeshMaterial3d(block_visuals.material_for(neon_block)),
+                    Transform::from_translation(logical_position_to_bevy_translation(
+                        block.position,
+                    )),
+                    DestroyingBlock {
+                        lifetime: Timer::from_seconds(
+                            DESTROYING_BLOCK_LIFETIME_SECONDS,
+                            TimerMode::Once,
+                        ),
+                    },
+                ));
+            }
+        }
+
         if cleared_planes.len() > 0 {
             info!("cleared {} planes", cleared_planes.len());
         }
@@ -1036,6 +1067,23 @@ fn apply_gravity(
         if !can_spawn {
             game.game_over = true;
             info!("GAME OVER");
+        }
+    }
+}
+
+fn animate_destroying_blocks(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut destroying_blocks: Query<(Entity, &mut Transform, &mut DestroyingBlock)>,
+) {
+    for (entity, mut transform, mut destroying_block) in &mut destroying_blocks {
+        destroying_block.lifetime.tick(time.delta());
+
+        let scale = destroying_block.lifetime.fraction_remaining();
+        transform.scale = Vec3::splat(scale);
+
+        if destroying_block.lifetime.is_finished() {
+            commands.entity(entity).despawn();
         }
     }
 }
