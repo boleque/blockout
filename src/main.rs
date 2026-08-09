@@ -798,7 +798,6 @@ fn handle_input(
         let locked_figure = game.active_figure.clone();
         game.well.lock_figure(&locked_figure);
 
-        // Clear full planes and collect the cleared planes
         let cleared_planes: Vec<Plane> = game.well.clear_full_planes();
         let cleared_positions = cleared_planes
             .iter()
@@ -1037,6 +1036,30 @@ fn apply_gravity(
         for (entity, locked_block) in &locked_blocks {
             if cleared_positions.contains(&locked_block.position) {
                 commands.entity(entity).despawn();
+            }
+        }
+
+        for plane in &cleared_planes {
+            for block in plane.blocks.iter().flatten() {
+                let neon_block = Block {
+                    color: Color::Yellow,
+                    material: Material::Neon,
+                    ..*block
+                };
+
+                commands.spawn((
+                    Mesh3d(block_visuals.mesh.clone()),
+                    MeshMaterial3d(block_visuals.material_for(neon_block)),
+                    Transform::from_translation(logical_position_to_bevy_translation(
+                        block.position,
+                    )),
+                    DestroyingBlock {
+                        lifetime: Timer::from_seconds(
+                            DESTROYING_BLOCK_LIFETIME_SECONDS,
+                            TimerMode::Once,
+                        ),
+                    },
+                ));
             }
         }
 
