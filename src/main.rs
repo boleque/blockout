@@ -4,6 +4,7 @@ use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 
 const DESTROYING_BLOCK_LIFETIME_SECONDS: f32 = 0.8;
+const SCORE_PER_CLEARED_PLANE: u64 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Axis {
@@ -91,10 +92,14 @@ struct GameModel {
     well: Well,
     active_figure: Figure,
     next_figure: Figure,
+    score: u64,
     show_line: bool,
     game_over: bool,
     figure_bag: FigureBag,
 }
+
+#[derive(Component)]
+struct ScoreText;
 
 #[derive(Component)]
 struct DebugLine;
@@ -348,11 +353,12 @@ impl GameModel {
 
         Self {
             well: Well::new(6, 6, 12),
-            active_figure,
-            next_figure,
+            active_figure: active_figure,
+            next_figure: next_figure,
             show_line: true,
             game_over: false,
-            figure_bag,
+            figure_bag: figure_bag,
+            score: 0,
         }
     }
 }
@@ -799,6 +805,15 @@ fn handle_input(
         game.well.lock_figure(&locked_figure);
 
         let cleared_planes: Vec<Plane> = game.well.clear_full_planes();
+        let earned_score = score_for_cleared_planes(cleared_planes.len());
+        game.score += earned_score;
+        if earned_score > 0 {
+            info!(
+                "earned score: {}, total score: {}",
+                earned_score, game.score
+            );
+        }
+
         let cleared_positions = cleared_planes
             .iter()
             .flat_map(|plane| plane.blocks.iter().flatten())
@@ -1027,6 +1042,15 @@ fn apply_gravity(
         game.well.lock_figure(&locked_figure);
 
         let cleared_planes = game.well.clear_full_planes();
+        let earned_score = score_for_cleared_planes(cleared_planes.len());
+        game.score += earned_score;
+        if earned_score > 0 {
+            info!(
+                "earned score: {}, total score: {}",
+                earned_score, game.score
+            );
+        }
+
         let cleared_positions = cleared_planes
             .iter()
             .flat_map(|plane| plane.blocks.iter().flatten())
@@ -1109,6 +1133,10 @@ fn animate_destroying_blocks(
             commands.entity(entity).despawn();
         }
     }
+}
+
+fn score_for_cleared_planes(cleared_planes_count: usize) -> u64 {
+    cleared_planes_count as u64 * SCORE_PER_CLEARED_PLANE
 }
 
 #[cfg(test)]
