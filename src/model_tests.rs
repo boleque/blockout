@@ -51,6 +51,14 @@ fn figure_bag_returns_every_kind_once_before_refill() {
 }
 
 #[test]
+fn score_is_based_on_cleared_plane_count() {
+    assert_eq!(score_for_cleared_planes(0), 0);
+    assert_eq!(score_for_cleared_planes(1), 100);
+    assert_eq!(score_for_cleared_planes(2), 200);
+    assert_eq!(score_for_cleared_planes(4), 400);
+}
+
+#[test]
 fn clear_full_planes_removes_multiple_planes() {
     let mut well = well_with_blocks(
         2,
