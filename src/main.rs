@@ -748,6 +748,34 @@ fn setup(
                             CubesPlacedText,
                         ));
                     });
+                // LEVEL
+                right_panel
+                    .spawn(Node {
+                        width: percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: px(6.0),
+                        ..default()
+                    })
+                    .with_children(|level_section| {
+                        level_section.spawn((
+                            Text::new("LEVEL"),
+                            TextFont {
+                                font_size: FontSize::Px(18.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                        ));
+
+                        level_section.spawn((
+                            Text::new("0"),
+                            TextFont {
+                                font_size: FontSize::Px(30.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                        ));
+                    });
             });
         });
 
