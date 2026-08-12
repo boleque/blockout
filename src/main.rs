@@ -688,7 +688,26 @@ fn setup(
                 },
                 BackgroundColor(BevyColor::srgb(0.01, 0.02, 0.04)),
                 BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
-            ));
+            ))
+            .with_children(|right_panel| {
+                right_panel.spawn((
+                    Text::new("SCORE"),
+                    TextFont {
+                        font_size: FontSize::Px(18.0),
+                        ..default()
+                    },
+                    TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                ));
+                right_panel.spawn((
+                    Text::new(format!("{:06}", game.score)),
+                    TextFont {
+                        font_size: FontSize::Px(30.0),
+                        ..default()
+                    },
+                    TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                    ScoreText,
+                ));
+            });
         });
 
     commands.spawn((
