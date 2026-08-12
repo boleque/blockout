@@ -1,10 +1,26 @@
 use bevy::prelude::Color as BevyColor;
-use bevy::{prelude::*, text::FontSize};
+use bevy::{
+    asset::RenderAssetUsages,
+    camera::RenderTarget,
+    prelude::*,
+    render::render_resource::{TextureDimension, TextureFormat, TextureUsages},
+    text::FontSize,
+    ui::widget::ViewportNode,
+};
 use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 
 const DESTROYING_BLOCK_LIFETIME_SECONDS: f32 = 0.8;
 const SCORE_PER_CLEARED_PLANE: u64 = 100;
+
+#[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+enum AppState {
+    #[default]
+    MainMenu,
+    InGame,
+    Leaderboard,
+    Settings,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Axis {
@@ -131,6 +147,18 @@ struct GravityTimer {
 struct DestroyingBlock {
     lifetime: Timer,
 }
+
+#[derive(Component)]
+struct GameCamera;
+
+#[derive(Component)]
+struct UiCamera;
+
+#[derive(Component)]
+struct GameScreenRoot;
+
+#[derive(Component)]
+struct GameViewportArea;
 
 impl Plane {
     fn empty(blocks_count: usize) -> Self {
@@ -532,11 +560,6 @@ fn preview_block_translation(block: Block, figure_pivot: Vec3i, scale: f32) -> V
 
 fn main() {
     App::new()
-        .insert_resource(GameModel::new())
-        .insert_resource(ClearColor(BevyColor::srgb(0.0, 0.0, 0.0)))
-        .insert_resource(GravityTimer {
-            timer: Timer::from_seconds(0.7, TimerMode::Repeating),
-        })
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Blockout".into(),
@@ -544,6 +567,12 @@ fn main() {
             }),
             ..default()
         }))
+        .init_state::<AppState>()
+        .insert_resource(GameModel::new())
+        .insert_resource(ClearColor(BevyColor::srgb(0.0, 0.0, 0.0)))
+        .insert_resource(GravityTimer {
+            timer: Timer::from_seconds(0.7, TimerMode::Repeating),
+        })
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -566,20 +595,101 @@ fn setup(
     game: Res<GameModel>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     // calculate well center
     let well_center_x = (game.well.width - 1) as f32 * 0.5;
     let well_center_y = (game.well.height - 1) as f32 * 0.5;
     let well_center_z = (game.well.depth - 1) as f32 * 0.5;
 
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(well_center_x, well_center_y, -12.0).looking_at(
-            Vec3::new(well_center_x, well_center_y, well_center_z),
-            Vec3::Y,
-        ),
-        IsDefaultUiCamera,
-    ));
+    let mut game_viewport_image = Image::new_uninit(
+        default(),
+        TextureDimension::D2,
+        TextureFormat::Bgra8UnormSrgb,
+        RenderAssetUsages::all(),
+    );
+
+    game_viewport_image.texture_descriptor.usage =
+        TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+
+    let game_viewport_image_handle = images.add(game_viewport_image);
+
+    let game_camera = commands
+        .spawn((
+            Camera3d::default(),
+            Camera {
+                order: -1,
+                ..default()
+            },
+            RenderTarget::Image(game_viewport_image_handle.clone().into()),
+            Transform::from_xyz(well_center_x, well_center_y, -12.0).looking_at(
+                Vec3::new(well_center_x, well_center_y, well_center_z),
+                Vec3::Y,
+            ),
+            GameCamera,
+        ))
+        .id();
+
+    commands.spawn((Camera2d, IsDefaultUiCamera, UiCamera));
+
+    commands
+        .spawn((
+            Node {
+                width: percent(100.0),
+                height: percent(100.0),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                ..default()
+            },
+            BackgroundColor(BevyColor::srgb(0.0, 0.0, 0.0)),
+            GameScreenRoot,
+        ))
+        .with_children(|root| {
+            // LeftPanel
+            root.spawn((
+                Node {
+                    width: percent(22.0),
+                    height: percent(100.0),
+                    border: UiRect::right(px(2.0)),
+                    ..default()
+                },
+                BackgroundColor(BevyColor::srgb(0.01, 0.02, 0.04)),
+                BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+            ));
+
+            // GameViewportArea
+            root.spawn((
+                Node {
+                    flex_grow: 1.0,
+                    height: percent(100.0),
+                    position_type: PositionType::Relative,
+                    ..default()
+                },
+                BackgroundColor(BevyColor::BLACK),
+                GameViewportArea,
+            ))
+            .with_children(|viewport_area| {
+                viewport_area.spawn((
+                    Node {
+                        width: percent(100.0),
+                        height: percent(100.0),
+                        ..default()
+                    },
+                    ViewportNode::new(game_camera),
+                ));
+            });
+            // RightPanel
+            root.spawn((
+                Node {
+                    width: percent(22.0),
+                    height: percent(100.0),
+                    border: UiRect::left(px(2.0)),
+                    ..default()
+                },
+                BackgroundColor(BevyColor::srgb(0.01, 0.02, 0.04)),
+                BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+            ));
+        });
 
     commands.spawn((
         PointLight {
@@ -588,56 +698,6 @@ fn setup(
         },
         Transform::from_xyz(4.0, 8.0, -4.0),
     ));
-
-    commands.spawn((
-        Text::new("MOVE: A/D = X, W/S = Y, E = +Z\nROTATE: X / Y / Z, SPACE = line"),
-        TextFont {
-            font_size: FontSize::Px(20.0),
-            ..default()
-        },
-        TextColor(BevyColor::srgb(1.0, 1.0, 1.0)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(20.0),
-            left: px(20.0),
-            ..default()
-        },
-    ));
-
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(100.0),
-            left: px(100.0),
-            width: px(200.0),
-            height: px(4.0),
-            ..default()
-        },
-        BackgroundColor(BevyColor::srgb(0.0, 1.0, 0.0)),
-        DebugLine,
-    ));
-
-    commands.spawn((
-        Text::new("GAME OVER"),
-        TextFont {
-            font_size: FontSize::Px(48.0),
-            ..default()
-        },
-        TextColor(BevyColor::srgb(1.0, 0.2, 0.2)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(250.0),
-            left: px(450.0),
-            ..default()
-        },
-        Visibility::Hidden,
-        GameOverText,
-    ));
-
-    info!(
-        "well size: {} x {} x {}",
-        game.well.width, game.well.height, game.well.depth
-    );
 
     let block_colors = [
         (Color::Cyan, BevyColor::srgb(0.2, 0.8, 1.0)),
