@@ -160,6 +160,9 @@ struct GameScreenRoot;
 #[derive(Component)]
 struct GameViewportArea;
 
+#[derive(Component)]
+struct CubesPlacedText;
+
 impl Plane {
     fn empty(blocks_count: usize) -> Self {
         Self {
@@ -711,6 +714,40 @@ fn setup(
                     TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
                     ScoreText,
                 ));
+                // CUBES PLACED
+                right_panel
+                    .spawn((
+                        Node {
+                            width: percent(100.0),
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::Center,
+                            row_gap: px(6.0),
+                            padding: UiRect::bottom(px(16.0)),
+                            border: UiRect::bottom(px(1.0)),
+                            ..default()
+                        },
+                        BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                    ))
+                    .with_children(|cubes_section| {
+                        cubes_section.spawn((
+                            Text::new("CUBES PLACED"),
+                            TextFont {
+                                font_size: FontSize::Px(18.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                        ));
+
+                        cubes_section.spawn((
+                            Text::new(format!("{:03}", game.well.occupied_count())),
+                            TextFont {
+                                font_size: FontSize::Px(30.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                            CubesPlacedText,
+                        ));
+                    });
             });
         });
 
