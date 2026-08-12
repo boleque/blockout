@@ -683,6 +683,10 @@ fn setup(
                 Node {
                     width: percent(22.0),
                     height: percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    padding: UiRect::all(px(24.0)),
+                    row_gap: px(28.0),
                     border: UiRect::left(px(2.0)),
                     ..default()
                 },
