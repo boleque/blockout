@@ -173,6 +173,12 @@ struct GameViewportArea;
 #[derive(Component)]
 struct CubesPlacedText;
 
+#[derive(Component)]
+struct RestartButton;
+
+#[derive(Component)]
+struct MainMenuButton;
+
 impl Plane {
     fn empty(blocks_count: usize) -> Self {
         Self {
@@ -886,6 +892,58 @@ fn setup(
                                     TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
                                     FinalScoreText,
                                 ));
+
+                                modal
+                                    .spawn((
+                                        Button,
+                                        Node {
+                                            width: percent(100.0),
+                                            height: px(56.0),
+                                            justify_content: JustifyContent::Center,
+                                            align_items: AlignItems::Center,
+                                            border: UiRect::all(px(2.0)),
+                                            ..default()
+                                        },
+                                        BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                                        BorderColor::all(BevyColor::srgb(0.1, 0.45, 1.0)),
+                                        RestartButton,
+                                    ))
+                                    .with_children(|button| {
+                                        button.spawn((
+                                            Text::new("RESTART"),
+                                            TextFont {
+                                                font_size: FontSize::Px(22.0),
+                                                ..default()
+                                            },
+                                            TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                                        ));
+                                    });
+
+                                modal
+                                    .spawn((
+                                        Button,
+                                        Node {
+                                            width: percent(100.0),
+                                            height: px(56.0),
+                                            justify_content: JustifyContent::Center,
+                                            align_items: AlignItems::Center,
+                                            border: UiRect::all(px(2.0)),
+                                            ..default()
+                                        },
+                                        BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                                        BorderColor::all(BevyColor::srgb(0.1, 0.45, 1.0)),
+                                        MainMenuButton,
+                                    ))
+                                    .with_children(|button| {
+                                        button.spawn((
+                                            Text::new("MAIN MENU"),
+                                            TextFont {
+                                                font_size: FontSize::Px(22.0),
+                                                ..default()
+                                            },
+                                            TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                                        ));
+                                    });
                             });
                     });
             });
