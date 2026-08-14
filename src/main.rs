@@ -599,6 +599,7 @@ fn main() {
                 sync_game_over_text,
                 draw_well,
                 animate_destroying_blocks,
+                handle_restart_button,
             )
                 .chain(),
         )
@@ -1595,6 +1596,23 @@ fn animate_destroying_blocks(
     }
 }
 
+fn handle_restart_button(
+    mut commands: Commands,
+    restart_buttons: Query<&Interaction, (Changed<Interaction>, With<RestartButton>)>,
+    mut game: ResMut<GameModel>,
+    mut gravity: ResMut<GravityTimer>,
+    locked_blocks: Query<Entity, With<LockedBlock>>,
+    destroying_blocks: Query<Entity, With<DestroyingBlock>>,
+) {
+    println!("system started");
+
+    for interaction in &restart_buttons {
+        if *interaction == Interaction::Pressed {
+            println!("button pressed");
+        }
+        println!("button found");
+    }
+}
 fn score_for_cleared_planes(cleared_planes_count: usize) -> u64 {
     cleared_planes_count as u64 * SCORE_PER_CLEARED_PLANE
 }
