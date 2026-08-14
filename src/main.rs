@@ -135,6 +135,12 @@ struct LockedBlock {
 struct GameOverText;
 
 #[derive(Component)]
+struct GameOverOverlay;
+
+#[derive(Component)]
+struct FinalScoreText;
+
+#[derive(Component)]
 struct PreviewBlockIndex {
     index: usize,
 }
