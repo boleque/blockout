@@ -825,22 +825,69 @@ fn setup(
                     ViewportNode::new(game_camera),
                 ));
 
-                viewport_area.spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: px(0.0),
-                        right: px(0.0),
-                        top: px(0.0),
-                        bottom: px(0.0),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                    BackgroundColor(BevyColor::srgba(0.0, 0.0, 0.0, 0.72)),
-                    Visibility::Visible,
-                    GlobalZIndex(10),
-                    GameOverOverlay,
-                ));
+                viewport_area
+                    .spawn((
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: px(0.0),
+                            right: px(0.0),
+                            top: px(0.0),
+                            bottom: px(0.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        BackgroundColor(BevyColor::srgba(0.0, 0.0, 0.0, 0.72)),
+                        Visibility::Visible,
+                        GlobalZIndex(10),
+                        GameOverOverlay,
+                    ))
+                    .with_children(|overlay| {
+                        overlay
+                            .spawn((
+                                Node {
+                                    width: percent(80.0),
+                                    max_width: px(420.0),
+                                    flex_direction: FlexDirection::Column,
+                                    align_items: AlignItems::Center,
+                                    padding: UiRect::all(px(32.0)),
+                                    row_gap: px(20.0),
+                                    border: UiRect::all(px(2.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(BevyColor::srgb(0.01, 0.02, 0.04)),
+                                BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                            ))
+                            .with_children(|modal| {
+                                modal.spawn((
+                                    Text::new("GAME OVER"),
+                                    TextFont {
+                                        font_size: FontSize::Px(42.0),
+                                        ..default()
+                                    },
+                                    TextColor(BevyColor::srgb(1.0, 0.15, 0.15)),
+                                ));
+
+                                modal.spawn((
+                                    Text::new("FINAL SCORE"),
+                                    TextFont {
+                                        font_size: FontSize::Px(18.0),
+                                        ..default()
+                                    },
+                                    TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                                ));
+
+                                modal.spawn((
+                                    Text::new(format!("{:06}", game.score)),
+                                    TextFont {
+                                        font_size: FontSize::Px(34.0),
+                                        ..default()
+                                    },
+                                    TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                                    FinalScoreText,
+                                ));
+                            });
+                    });
             });
             // RightPanel
             root.spawn((
