@@ -1367,13 +1367,27 @@ fn sync_next_figure_preview(
     }
 }
 
-fn sync_game_over_text(game: Res<GameModel>, mut text: Query<&mut Visibility, With<GameOverText>>) {
-    for mut visibility in &mut text {
+fn sync_game_over_text(
+    game: Res<GameModel>,
+    mut overlays: Query<&mut Visibility, With<GameOverOverlay>>,
+    mut final_score_texts: Query<&mut Text, With<FinalScoreText>>,
+) {
+    if !game.is_changed() {
+        return;
+    }
+
+    for mut visibility in &mut overlays {
         *visibility = if game.game_over {
             Visibility::Visible
         } else {
             Visibility::Hidden
         };
+    }
+
+    if game.game_over {
+        for mut text in &mut final_score_texts {
+            text.0 = format!("{:06}", game.score);
+        }
     }
 }
 
