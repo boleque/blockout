@@ -824,6 +824,23 @@ fn setup(
                     },
                     ViewportNode::new(game_camera),
                 ));
+
+                viewport_area.spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: px(0.0),
+                        right: px(0.0),
+                        top: px(0.0),
+                        bottom: px(0.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BackgroundColor(BevyColor::srgba(0.0, 0.0, 0.0, 0.72)),
+                    Visibility::Visible,
+                    GlobalZIndex(10),
+                    GameOverOverlay,
+                ));
             });
             // RightPanel
             root.spawn((
