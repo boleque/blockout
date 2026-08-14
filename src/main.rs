@@ -844,7 +844,7 @@ fn setup(
                             ..default()
                         },
                         BackgroundColor(BevyColor::srgba(0.0, 0.0, 0.0, 0.72)),
-                        Visibility::Visible,
+                        Visibility::Hidden,
                         GlobalZIndex(10),
                         GameOverOverlay,
                     ))
