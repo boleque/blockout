@@ -132,9 +132,6 @@ struct LockedBlock {
 }
 
 #[derive(Component)]
-struct GameOverText;
-
-#[derive(Component)]
 struct GameOverOverlay;
 
 #[derive(Component)]
