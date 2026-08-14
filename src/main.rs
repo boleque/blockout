@@ -1,7 +1,7 @@
 use bevy::prelude::Color as BevyColor;
 use bevy::{
     asset::RenderAssetUsages,
-    camera::RenderTarget,
+    camera::{RenderTarget, visibility::RenderLayers},
     prelude::*,
     render::render_resource::{TextureDimension, TextureFormat, TextureUsages},
     text::FontSize,
@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 const DESTROYING_BLOCK_LIFETIME_SECONDS: f32 = 0.8;
 const SCORE_PER_CLEARED_PLANE: u64 = 100;
+const PREVIEW_RENDER_LAYER: usize = 1;
 
 #[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 enum AppState {
@@ -150,6 +151,9 @@ struct DestroyingBlock {
 
 #[derive(Component)]
 struct GameCamera;
+
+#[derive(Component)]
+struct PreviewCamera;
 
 #[derive(Component)]
 struct UiCamera;
@@ -555,10 +559,9 @@ fn logical_position_to_bevy_translation(position: Vec3i) -> Vec3 {
 }
 
 fn preview_block_translation(block: Block, figure_pivot: Vec3i, scale: f32) -> Vec3 {
-    let preview_origin = Vec3::new(7.0, 3.0, 0.0);
     let local_position = block.position.relative_to(figure_pivot);
 
-    preview_origin + logical_position_to_bevy_translation(local_position) * scale
+    logical_position_to_bevy_translation(local_position) * scale
 }
 
 fn main() {
@@ -633,6 +636,33 @@ fn setup(
         ))
         .id();
 
+    let mut preview_viewport_image = Image::new_uninit(
+        default(),
+        TextureDimension::D2,
+        TextureFormat::Bgra8UnormSrgb,
+        RenderAssetUsages::all(),
+    );
+
+    preview_viewport_image.texture_descriptor.usage =
+        TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+
+    let preview_viewport_image_handle = images.add(preview_viewport_image);
+
+    let preview_camera = commands
+        .spawn((
+            Camera3d::default(),
+            Camera {
+                order: -1,
+                clear_color: BevyColor::BLACK.into(),
+                ..default()
+            },
+            RenderTarget::Image(preview_viewport_image_handle.into()),
+            Transform::from_xyz(0.0, 0.0, -6.0).looking_at(Vec3::ZERO, Vec3::Y),
+            RenderLayers::layer(PREVIEW_RENDER_LAYER),
+            PreviewCamera,
+        ))
+        .id();
+
     commands.spawn((Camera2d, IsDefaultUiCamera, UiCamera));
 
     commands
@@ -653,12 +683,120 @@ fn setup(
                 Node {
                     width: percent(22.0),
                     height: percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    padding: UiRect::all(px(24.0)),
+                    row_gap: px(28.0),
                     border: UiRect::right(px(2.0)),
                     ..default()
                 },
                 BackgroundColor(BevyColor::srgb(0.01, 0.02, 0.04)),
                 BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
-            ));
+            ))
+            .with_children(|left_panel| {
+                // NEXT BLOCK
+                left_panel
+                    .spawn((
+                        Node {
+                            width: percent(100.0),
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::Center,
+                            row_gap: px(12.0),
+                            padding: UiRect::bottom(px(18.0)),
+                            border: UiRect::bottom(px(1.0)),
+                            ..default()
+                        },
+                        BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                    ))
+                    .with_children(|next_block_section| {
+                        next_block_section.spawn((
+                            Text::new("NEXT BLOCK"),
+                            TextFont {
+                                font_size: FontSize::Px(18.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                        ));
+
+                        next_block_section.spawn((
+                            Node {
+                                width: percent(100.0),
+                                height: px(190.0),
+                                border: UiRect::all(px(2.0)),
+                                ..default()
+                            },
+                            BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                            BackgroundColor(BevyColor::BLACK),
+                            ViewportNode::new(preview_camera),
+                        ));
+                    });
+
+                // PIT
+                left_panel
+                    .spawn((
+                        Node {
+                            width: percent(100.0),
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::Center,
+                            row_gap: px(6.0),
+                            padding: UiRect::bottom(px(16.0)),
+                            border: UiRect::bottom(px(1.0)),
+                            ..default()
+                        },
+                        BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                    ))
+                    .with_children(|pit_section| {
+                        pit_section.spawn((
+                            Text::new("PIT"),
+                            TextFont {
+                                font_size: FontSize::Px(18.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                        ));
+
+                        pit_section.spawn((
+                            Text::new(format!(
+                                "{} × {} × {}",
+                                game.well.width, game.well.height, game.well.depth
+                            )),
+                            TextFont {
+                                font_size: FontSize::Px(26.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                        ));
+                    });
+
+                // BLOCK SET
+                left_panel
+                    .spawn(Node {
+                        width: percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: px(6.0),
+                        ..default()
+                    })
+                    .with_children(|block_set_section| {
+                        block_set_section.spawn((
+                            Text::new("BLOCK SET"),
+                            TextFont {
+                                font_size: FontSize::Px(18.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                        ));
+
+                        block_set_section.spawn((
+                            Text::new("FLAT"),
+                            TextFont {
+                                font_size: FontSize::Px(30.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                        ));
+                    });
+            });
 
             // GameViewportArea
             root.spawn((
@@ -697,6 +835,39 @@ fn setup(
                 BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
             ))
             .with_children(|right_panel| {
+                // LOGO
+                right_panel
+                    .spawn((
+                        Node {
+                            width: percent(100.0),
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::FlexEnd,
+                            padding: UiRect::bottom(px(18.0)),
+                            border: UiRect::bottom(px(2.0)),
+                            ..default()
+                        },
+                        BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                    ))
+                    .with_children(|logo| {
+                        logo.spawn((
+                            Text::new("BLOCK"),
+                            TextFont {
+                                font_size: FontSize::Px(34.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(1.0, 0.15, 0.15)),
+                        ));
+
+                        logo.spawn((
+                            Text::new("OUT"),
+                            TextFont {
+                                font_size: FontSize::Px(34.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.1, 0.45, 1.0)),
+                        ));
+                    });
+                // SCORE
                 right_panel.spawn((
                     Text::new("SCORE"),
                     TextFont {
@@ -785,6 +956,7 @@ fn setup(
             ..default()
         },
         Transform::from_xyz(4.0, 8.0, -4.0),
+        RenderLayers::layer(0).with(PREVIEW_RENDER_LAYER),
     ));
 
     let block_colors = [
@@ -838,6 +1010,7 @@ fn setup(
             Mesh3d(block_mesh.clone()),
             MeshMaterial3d(preview_material),
             Transform::from_translation(preview_translation).with_scale(Vec3::splat(preview_scale)),
+            RenderLayers::layer(PREVIEW_RENDER_LAYER),
             PreviewBlockIndex { index },
         ));
     }
