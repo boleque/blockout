@@ -1607,12 +1607,29 @@ fn handle_restart_button(
     println!("system started");
 
     for interaction in &restart_buttons {
-        if *interaction == Interaction::Pressed {
-            println!("button pressed");
+        if *interaction != Interaction::Pressed {
+            continue;
         }
-        println!("button found");
+
+        if !game.game_over {
+            continue;
+        }
+
+        for entity in locked_blocks {
+            commands.entity(entity).despawn();
+        }
+
+        for entity in destroying_blocks {
+            commands.entity(entity).despawn();
+        }
+
+        *game = GameModel::new();
+        gravity.timer.reset();
     }
 }
+
+fn handle_main_menu_button() {}
+
 fn score_for_cleared_planes(cleared_planes_count: usize) -> u64 {
     cleared_planes_count as u64 * SCORE_PER_CLEARED_PLANE
 }
