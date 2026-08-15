@@ -1666,14 +1666,143 @@ fn setup_game_main_menu(mut commands: Commands) {
             DespawnOnExit(AppState::MainMenu),
         ))
         .with_children(|main_menu| {
-            main_menu.spawn((
-                Text::new("BlockOut"),
-                TextFont {
-                    font_size: FontSize::Px(72.0),
-                    ..default()
-                },
-                TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
-            ));
+            main_menu
+                .spawn((
+                    Text::new("Block"),
+                    TextFont {
+                        font_size: FontSize::Px(72.0),
+                        ..default()
+                    },
+                    TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                ))
+                .with_children(|title| {
+                    title.spawn((
+                        TextSpan::new("Out"),
+                        TextFont {
+                            font_size: FontSize::Px(72.0),
+                            ..default()
+                        },
+                        TextColor(BevyColor::srgb(1.0, 0.15, 0.15)),
+                    ));
+                });
+
+            main_menu
+                .spawn((
+                    Node {
+                        width: px(360.0),
+                        flex_direction: FlexDirection::Column,
+                        row_gap: px(16.0),
+                        padding: UiRect::all(px(20.0)),
+                        border: UiRect::all(px(2.0)),
+                        border_radius: BorderRadius::all(px(8.0)),
+                        ..default()
+                    },
+                    BackgroundColor(BevyColor::srgb(0.01, 0.04, 0.09)),
+                    BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                ))
+                .with_children(|buttons_container| {
+                    buttons_container
+                        .spawn((
+                            Button,
+                            Node {
+                                width: percent(100.0),
+                                height: px(56.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(px(2.0)),
+                                ..default()
+                            },
+                            BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                            BorderColor::all(BevyColor::srgb(0.2, 1.0, 0.35)),
+                            PlayButton,
+                        ))
+                        .with_children(|button| {
+                            button.spawn((
+                                Text::new("START"),
+                                TextFont {
+                                    font_size: FontSize::Px(22.0),
+                                    ..default()
+                                },
+                                TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                            ));
+                        });
+
+                    buttons_container
+                        .spawn((
+                            Button,
+                            Node {
+                                width: percent(100.0),
+                                height: px(56.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(px(2.0)),
+                                ..default()
+                            },
+                            BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                            BorderColor::all(BevyColor::srgb(0.2, 0.75, 1.0)),
+                            PlayButton,
+                        ))
+                        .with_children(|button| {
+                            button.spawn((
+                                Text::new("LEADERBOARD"),
+                                TextFont {
+                                    font_size: FontSize::Px(22.0),
+                                    ..default()
+                                },
+                                TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                            ));
+                        });
+                    buttons_container
+                        .spawn((
+                            Button,
+                            Node {
+                                width: percent(100.0),
+                                height: px(56.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(px(2.0)),
+                                ..default()
+                            },
+                            BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                            BorderColor::all(BevyColor::srgb(0.2, 0.75, 1.0)),
+                            PlayButton,
+                        ))
+                        .with_children(|button| {
+                            button.spawn((
+                                Text::new("SETTINGS"),
+                                TextFont {
+                                    font_size: FontSize::Px(22.0),
+                                    ..default()
+                                },
+                                TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                            ));
+                        });
+                    buttons_container
+                        .spawn((
+                            Button,
+                            Node {
+                                width: percent(100.0),
+                                height: px(56.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(px(2.0)),
+                                ..default()
+                            },
+                            BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                            BorderColor::all(BevyColor::srgb(1.0, 0.15, 0.15)),
+                            PlayButton,
+                        ))
+                        .with_children(|button| {
+                            button.spawn((
+                                Text::new("QUIT"),
+                                TextFont {
+                                    font_size: FontSize::Px(22.0),
+                                    ..default()
+                                },
+                                TextColor(BevyColor::srgb(1.0, 0.15, 0.15)),
+                            ));
+                        });
+                });
         });
 }
 
