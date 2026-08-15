@@ -1663,6 +1663,7 @@ fn setup_game_main_menu(mut commands: Commands) {
             },
             BackgroundColor(BevyColor::srgb(0.0, 0.0, 0.0)),
             MainMenuRoot,
+            DespawnOnExit(AppState::MainMenu),
         ))
         .with_children(|main_menu| {
             main_menu.spawn((
