@@ -174,7 +174,13 @@ struct CubesPlacedText;
 struct RestartButton;
 
 #[derive(Component)]
+struct MainMenuRoot;
+
+#[derive(Component)]
 struct MainMenuButton;
+
+#[derive(Component)]
+struct PlayButton;
 
 impl Plane {
     fn empty(blocks_count: usize) -> Self {
