@@ -594,7 +594,9 @@ fn main() {
         .insert_resource(GravityTimer {
             timer: Timer::from_seconds(0.7, TimerMode::Repeating),
         })
-        .add_systems(Startup, setup_game)
+        .add_systems(Startup, setup_main_ui_camera)
+        .add_systems(OnEnter(AppState::MainMenu), setup_game_main_menu)
+        .add_systems(OnEnter(AppState::InGame), setup_game)
         .add_systems(
             Update,
             (
@@ -607,9 +609,14 @@ fn main() {
                 animate_destroying_blocks,
                 handle_restart_button,
             )
-                .chain(),
+                .chain()
+                .run_if(in_state(AppState::InGame)),
         )
         .run();
+}
+
+fn setup_main_ui_camera(mut commands: Commands) {
+    commands.spawn((Camera2d, IsDefaultUiCamera, UiCamera));
 }
 
 fn setup_game(
@@ -679,14 +686,11 @@ fn setup_game(
         ))
         .id();
 
-    commands.spawn((Camera2d, IsDefaultUiCamera, UiCamera));
-
     commands
         .spawn((
             Node {
                 width: percent(100.0),
                 height: percent(100.0),
-                display: Display::Flex,
                 flex_direction: FlexDirection::Row,
                 ..default()
             },
@@ -1634,7 +1638,43 @@ fn handle_restart_button(
     }
 }
 
-fn handle_main_menu_button() {}
+fn handle_main_menu_button(
+    buttons: Query<&Interaction, (Changed<Interaction>, With<MainMenuButton>)>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    for interaction in &buttons {
+        if *interaction == Interaction::Pressed {
+            next_state.set(AppState::InGame);
+        }
+    }
+}
+
+fn setup_game_main_menu(mut commands: Commands) {
+    commands
+        .spawn((
+            Node {
+                width: percent(100.0),
+                height: percent(100.0),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(BevyColor::srgb(0.0, 0.0, 0.0)),
+            MainMenuRoot,
+        ))
+        .with_children(|main_menu| {
+            main_menu.spawn((
+                Text::new("BlockOut"),
+                TextFont {
+                    font_size: FontSize::Px(72.0),
+                    ..default()
+                },
+                TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+            ));
+        });
+}
 
 fn score_for_cleared_planes(cleared_planes_count: usize) -> u64 {
     cleared_planes_count as u64 * SCORE_PER_CLEARED_PLANE
