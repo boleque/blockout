@@ -182,6 +182,15 @@ struct MainMenuButton;
 #[derive(Component)]
 struct PlayButton;
 
+#[derive(Component)]
+struct LeaderboardButton;
+
+#[derive(Component)]
+struct SettingsButton;
+
+#[derive(Component)]
+struct QuitButton;
+
 impl Plane {
     fn empty(blocks_count: usize) -> Self {
         Self {
@@ -1740,7 +1749,7 @@ fn setup_game_main_menu(mut commands: Commands) {
                             },
                             BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
                             BorderColor::all(BevyColor::srgb(0.2, 0.75, 1.0)),
-                            PlayButton,
+                            LeaderboardButton,
                         ))
                         .with_children(|button| {
                             button.spawn((
@@ -1765,7 +1774,7 @@ fn setup_game_main_menu(mut commands: Commands) {
                             },
                             BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
                             BorderColor::all(BevyColor::srgb(0.2, 0.75, 1.0)),
-                            PlayButton,
+                            SettingsButton,
                         ))
                         .with_children(|button| {
                             button.spawn((
@@ -1790,7 +1799,7 @@ fn setup_game_main_menu(mut commands: Commands) {
                             },
                             BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
                             BorderColor::all(BevyColor::srgb(1.0, 0.15, 0.15)),
-                            PlayButton,
+                            QuitButton,
                         ))
                         .with_children(|button| {
                             button.spawn((
