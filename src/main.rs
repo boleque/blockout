@@ -608,6 +608,10 @@ fn main() {
         .add_systems(OnEnter(AppState::InGame), setup_game)
         .add_systems(
             Update,
+            handle_play_button.run_if(in_state(AppState::MainMenu)),
+        )
+        .add_systems(
+            Update,
             (
                 handle_input,
                 apply_gravity,
@@ -1611,6 +1615,17 @@ fn animate_destroying_blocks(
 
         if destroying_block.lifetime.is_finished() {
             commands.entity(entity).despawn();
+        }
+    }
+}
+
+fn handle_play_button(
+    buttons: Query<&Interaction, (Changed<Interaction>, With<PlayButton>)>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    for interaction in &buttons {
+        if *interaction == Interaction::Pressed {
+            next_state.set(AppState::InGame);
         }
     }
 }
