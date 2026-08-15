@@ -594,7 +594,7 @@ fn main() {
         .insert_resource(GravityTimer {
             timer: Timer::from_seconds(0.7, TimerMode::Repeating),
         })
-        .add_systems(Startup, setup)
+        .add_systems(Startup, setup_game)
         .add_systems(
             Update,
             (
@@ -612,7 +612,7 @@ fn main() {
         .run();
 }
 
-fn setup(
+fn setup_game(
     mut commands: Commands,
     game: Res<GameModel>,
     mut meshes: ResMut<Assets<Mesh>>,
