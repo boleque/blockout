@@ -110,6 +110,7 @@ struct GameModel {
     active_figure: Figure,
     next_figure: Figure,
     score: u64,
+    figures_placed: u64,
     show_line: bool,
     game_over: bool,
     figure_bag: FigureBag,
@@ -166,7 +167,7 @@ struct GameScreenRoot;
 struct GameViewportArea;
 
 #[derive(Component)]
-struct CubesPlacedText;
+struct FiguresPlacedText;
 
 #[derive(Component)]
 struct RestartButton;
@@ -212,15 +213,7 @@ impl FigureBag {
     }
 
     fn refill(&mut self) {
-        let kinds = vec![
-            FigureKind::I,
-            FigureKind::O,
-            FigureKind::T,
-            FigureKind::L,
-            FigureKind::J,
-            FigureKind::S,
-            FigureKind::Z,
-        ];
+        let kinds = vec![FigureKind::I];
 
         let colors = vec![
             Color::Orange,
@@ -416,6 +409,7 @@ impl GameModel {
             game_over: false,
             figure_bag: figure_bag,
             score: 0,
+            figures_placed: 0,
         }
     }
 }
@@ -618,6 +612,7 @@ fn main() {
                 handle_input,
                 apply_gravity,
                 sync_score_text,
+                sync_figures_placed_text,
                 sync_figure_position,
                 sync_next_figure_preview,
                 sync_game_over_text,
@@ -1044,7 +1039,7 @@ fn setup_game(
                     TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
                     ScoreText,
                 ));
-                // CUBES PLACED
+                // FIGURES PLACED
                 right_panel
                     .spawn((
                         Node {
@@ -1060,7 +1055,7 @@ fn setup_game(
                     ))
                     .with_children(|cubes_section| {
                         cubes_section.spawn((
-                            Text::new("CUBES PLACED"),
+                            Text::new("FIGURES PLACED"),
                             TextFont {
                                 font_size: FontSize::Px(18.0),
                                 ..default()
@@ -1069,13 +1064,13 @@ fn setup_game(
                         ));
 
                         cubes_section.spawn((
-                            Text::new(format!("{:03}", game.well.occupied_count())),
+                            Text::new(format!("{:03}", game.figures_placed)),
                             TextFont {
                                 font_size: FontSize::Px(30.0),
                                 ..default()
                             },
                             TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
-                            CubesPlacedText,
+                            FiguresPlacedText,
                         ));
                     });
                 // LEVEL
@@ -1306,6 +1301,7 @@ fn handle_input(
 
         let locked_figure = game.active_figure.clone();
         game.well.lock_figure(&locked_figure);
+        game.figures_placed += 1;
 
         let cleared_planes: Vec<Plane> = game.well.clear_full_planes();
         let earned_score = score_for_cleared_planes(cleared_planes.len());
@@ -1407,6 +1403,19 @@ fn sync_score_text(game: Res<GameModel>, mut score_texts: Query<&mut Text, With<
 
     for mut text in &mut score_texts {
         text.0 = format!("{:06}", game.score);
+    }
+}
+
+fn sync_figures_placed_text(
+    game: Res<GameModel>,
+    mut figures_placed_texts: Query<&mut Text, With<FiguresPlacedText>>,
+) {
+    if !game.is_changed() {
+        return;
+    }
+
+    for mut text in &mut figures_placed_texts {
+        text.0 = format!("{:03}", game.figures_placed);
     }
 }
 
@@ -1552,6 +1561,7 @@ fn apply_gravity(
     } else {
         let locked_figure = game.active_figure.clone();
         game.well.lock_figure(&locked_figure);
+        game.figures_placed += 1;
 
         let cleared_planes = game.well.clear_full_planes();
         let earned_score = score_for_cleared_planes(cleared_planes.len());
