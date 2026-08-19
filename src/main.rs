@@ -612,6 +612,10 @@ fn main() {
         )
         .add_systems(
             Update,
+            handle_main_menu_button.run_if(in_state(AppState::InGame)),
+        )
+        .add_systems(
+            Update,
             (
                 handle_input,
                 apply_gravity,
@@ -634,11 +638,15 @@ fn setup_main_ui_camera(mut commands: Commands) {
 
 fn setup_game(
     mut commands: Commands,
-    game: Res<GameModel>,
+    mut game: ResMut<GameModel>,
+    mut gravity: ResMut<GravityTimer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
+    *game = GameModel::new();
+    gravity.timer.reset();
+
     // calculate well center
     let well_center_x = (game.well.width - 1) as f32 * 0.5;
     let well_center_y = (game.well.height - 1) as f32 * 0.5;
@@ -669,6 +677,7 @@ fn setup_game(
                 Vec3::Y,
             ),
             GameCamera,
+            DespawnOnExit(AppState::InGame),
         ))
         .id();
 
@@ -696,6 +705,7 @@ fn setup_game(
             Transform::from_xyz(0.0, 0.0, -6.0).looking_at(Vec3::ZERO, Vec3::Y),
             RenderLayers::layer(PREVIEW_RENDER_LAYER),
             PreviewCamera,
+            DespawnOnExit(AppState::InGame),
         ))
         .id();
 
@@ -709,6 +719,7 @@ fn setup_game(
             },
             BackgroundColor(BevyColor::srgb(0.0, 0.0, 0.0)),
             GameScreenRoot,
+            DespawnOnExit(AppState::InGame),
         ))
         .with_children(|root| {
             // LeftPanel
@@ -1106,6 +1117,7 @@ fn setup_game(
         },
         Transform::from_xyz(4.0, 8.0, -4.0),
         RenderLayers::layer(0).with(PREVIEW_RENDER_LAYER),
+        DespawnOnExit(AppState::InGame),
     ));
 
     let block_colors = [
@@ -1146,6 +1158,7 @@ fn setup_game(
             MeshMaterial3d(block_material),
             Transform::from_translation(logical_position_to_bevy_translation(world_position)),
             FigureBlockIndex { index },
+            DespawnOnExit(AppState::InGame),
         ));
     }
 
@@ -1161,6 +1174,7 @@ fn setup_game(
             Transform::from_translation(preview_translation).with_scale(Vec3::splat(preview_scale)),
             RenderLayers::layer(PREVIEW_RENDER_LAYER),
             PreviewBlockIndex { index },
+            DespawnOnExit(AppState::InGame),
         ));
     }
 
@@ -1315,6 +1329,7 @@ fn handle_input(
                             TimerMode::Once,
                         ),
                     },
+                    DespawnOnExit(AppState::InGame),
                 ));
             }
         }
@@ -1339,6 +1354,7 @@ fn handle_input(
                 LockedBlock {
                     position: block.position,
                 },
+                DespawnOnExit(AppState::InGame),
             ));
         }
 
