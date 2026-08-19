@@ -13,6 +13,10 @@ use std::collections::HashMap;
 const DESTROYING_BLOCK_LIFETIME_SECONDS: f32 = 0.8;
 const SCORE_PER_CLEARED_PLANE: u64 = 100;
 const PREVIEW_RENDER_LAYER: usize = 1;
+const MIN_LEVEL: u8 = 1;
+const MAX_LEVEL: u8 = 10;
+const LEVEL_ONE_GRAVITY_SECONDS: f32 = 0.9;
+const GRAVITY_SECONDS_PER_LEVEL: f32 = 0.08;
 
 #[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 enum AppState {
@@ -69,6 +73,17 @@ struct Vec3i {
 struct BlockVisualAssets {
     mesh: Handle<Mesh>,
     materials: HashMap<(Color, Material), Handle<StandardMaterial>>,
+}
+
+#[derive(Resource)]
+struct GameSettings {
+    level: u8,
+}
+
+impl Default for GameSettings {
+    fn default() -> Self {
+        Self { level: MIN_LEVEL }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,6 +201,21 @@ struct LeaderboardButton;
 
 #[derive(Component)]
 struct SettingsButton;
+
+#[derive(Component)]
+struct GameSettingsRoot;
+
+#[derive(Component)]
+struct SettingsBackButton;
+
+#[derive(Component, Clone, Copy)]
+enum LevelAdjustment {
+    Decrease,
+    Increase,
+}
+
+#[derive(Component)]
+struct SettingsLevelText;
 
 #[derive(Component)]
 struct QuitButton;
@@ -555,6 +585,11 @@ fn rotated_figure_with_entrance_kick(well: &Well, figure: &Figure, axis: Axis) -
     well.can_place_figure(&candidate).then_some(candidate)
 }
 
+fn gravity_seconds_for_level(level: u8) -> f32 {
+    let level = level.clamp(MIN_LEVEL, MAX_LEVEL);
+    LEVEL_ONE_GRAVITY_SECONDS - (level - MIN_LEVEL) as f32 * GRAVITY_SECONDS_PER_LEVEL
+}
+
 fn make_block_material(base_color: BevyColor, _material: Material) -> StandardMaterial {
     StandardMaterial {
         base_color,
@@ -586,17 +621,33 @@ fn main() {
             ..default()
         }))
         .init_state::<AppState>()
+        .insert_resource(GameSettings::default())
         .insert_resource(GameModel::new())
         .insert_resource(ClearColor(BevyColor::srgb(0.0, 0.0, 0.0)))
         .insert_resource(GravityTimer {
-            timer: Timer::from_seconds(0.7, TimerMode::Repeating),
+            timer: Timer::from_seconds(gravity_seconds_for_level(MIN_LEVEL), TimerMode::Repeating),
         })
         .add_systems(Startup, setup_main_ui_camera)
         .add_systems(OnEnter(AppState::MainMenu), setup_game_main_menu)
+        .add_systems(OnEnter(AppState::Settings), setup_game_settings)
         .add_systems(OnEnter(AppState::InGame), setup_game)
         .add_systems(
             Update,
             handle_play_button.run_if(in_state(AppState::MainMenu)),
+        )
+        .add_systems(
+            Update,
+            handle_settings_button.run_if(in_state(AppState::MainMenu)),
+        )
+        .add_systems(
+            Update,
+            (
+                handle_level_adjustment_buttons,
+                sync_settings_level_text,
+                handle_settings_back_button,
+            )
+                .chain()
+                .run_if(in_state(AppState::Settings)),
         )
         .add_systems(
             Update,
@@ -633,13 +684,17 @@ fn setup_main_ui_camera(mut commands: Commands) {
 fn setup_game(
     mut commands: Commands,
     mut game: ResMut<GameModel>,
+    game_settings: Res<GameSettings>,
     mut gravity: ResMut<GravityTimer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     *game = GameModel::new();
-    gravity.timer.reset();
+    gravity.timer = Timer::from_seconds(
+        gravity_seconds_for_level(game_settings.level),
+        TimerMode::Repeating,
+    );
 
     // calculate well center
     let well_center_x = (game.well.width - 1) as f32 * 0.5;
@@ -766,72 +821,6 @@ fn setup_game(
                             BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
                             BackgroundColor(BevyColor::BLACK),
                             ViewportNode::new(preview_camera),
-                        ));
-                    });
-
-                // PIT
-                left_panel
-                    .spawn((
-                        Node {
-                            width: percent(100.0),
-                            flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::Center,
-                            row_gap: px(6.0),
-                            padding: UiRect::bottom(px(16.0)),
-                            border: UiRect::bottom(px(1.0)),
-                            ..default()
-                        },
-                        BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
-                    ))
-                    .with_children(|pit_section| {
-                        pit_section.spawn((
-                            Text::new("PIT"),
-                            TextFont {
-                                font_size: FontSize::Px(18.0),
-                                ..default()
-                            },
-                            TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
-                        ));
-
-                        pit_section.spawn((
-                            Text::new(format!(
-                                "{} × {} × {}",
-                                game.well.width, game.well.height, game.well.depth
-                            )),
-                            TextFont {
-                                font_size: FontSize::Px(26.0),
-                                ..default()
-                            },
-                            TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
-                        ));
-                    });
-
-                // BLOCK SET
-                left_panel
-                    .spawn(Node {
-                        width: percent(100.0),
-                        flex_direction: FlexDirection::Column,
-                        align_items: AlignItems::Center,
-                        row_gap: px(6.0),
-                        ..default()
-                    })
-                    .with_children(|block_set_section| {
-                        block_set_section.spawn((
-                            Text::new("BLOCK SET"),
-                            TextFont {
-                                font_size: FontSize::Px(18.0),
-                                ..default()
-                            },
-                            TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
-                        ));
-
-                        block_set_section.spawn((
-                            Text::new("FLAT"),
-                            TextFont {
-                                font_size: FontSize::Px(30.0),
-                                ..default()
-                            },
-                            TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
                         ));
                     });
             });
@@ -1093,7 +1082,7 @@ fn setup_game(
                         ));
 
                         level_section.spawn((
-                            Text::new("0"),
+                            Text::new(game_settings.level.to_string()),
                             TextFont {
                                 font_size: FontSize::Px(30.0),
                                 ..default()
@@ -1644,6 +1633,57 @@ fn handle_play_button(
     }
 }
 
+fn handle_settings_button(
+    buttons: Query<&Interaction, (Changed<Interaction>, With<SettingsButton>)>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    for interaction in &buttons {
+        if *interaction == Interaction::Pressed {
+            next_state.set(AppState::Settings);
+        }
+    }
+}
+
+fn handle_level_adjustment_buttons(
+    buttons: Query<(&Interaction, &LevelAdjustment), Changed<Interaction>>,
+    mut game_settings: ResMut<GameSettings>,
+) {
+    for (interaction, adjustment) in &buttons {
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+
+        game_settings.level = match adjustment {
+            LevelAdjustment::Decrease => game_settings.level.saturating_sub(1).max(MIN_LEVEL),
+            LevelAdjustment::Increase => game_settings.level.saturating_add(1).min(MAX_LEVEL),
+        };
+    }
+}
+
+fn sync_settings_level_text(
+    game_settings: Res<GameSettings>,
+    mut level_texts: Query<&mut Text, With<SettingsLevelText>>,
+) {
+    if !game_settings.is_changed() {
+        return;
+    }
+
+    for mut text in &mut level_texts {
+        text.0 = game_settings.level.to_string();
+    }
+}
+
+fn handle_settings_back_button(
+    buttons: Query<&Interaction, (Changed<Interaction>, With<SettingsBackButton>)>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    for interaction in &buttons {
+        if *interaction == Interaction::Pressed {
+            next_state.set(AppState::MainMenu);
+        }
+    }
+}
+
 fn handle_quit_button(
     buttons: Query<&Interaction, (Changed<Interaction>, With<QuitButton>)>,
     mut app_exit: MessageWriter<AppExit>,
@@ -1847,6 +1887,166 @@ fn setup_game_main_menu(mut commands: Commands) {
                                     ..default()
                                 },
                                 TextColor(BevyColor::srgb(1.0, 0.15, 0.15)),
+                            ));
+                        });
+                });
+        });
+}
+
+fn setup_game_settings(mut commands: Commands, game_settings: Res<GameSettings>) {
+    commands
+        .spawn((
+            Node {
+                width: percent(100.0),
+                height: percent(100.0),
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                row_gap: px(32.0),
+                ..default()
+            },
+            BackgroundColor(BevyColor::srgb(0.0, 0.0, 0.0)),
+            GameSettingsRoot,
+            DespawnOnExit(AppState::Settings),
+        ))
+        .with_children(|settings| {
+            settings.spawn((
+                Text::new("GAME SETTINGS"),
+                TextFont {
+                    font_size: FontSize::Px(52.0),
+                    ..default()
+                },
+                TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+            ));
+
+            settings
+                .spawn((
+                    Node {
+                        width: px(420.0),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: px(20.0),
+                        padding: UiRect::all(px(28.0)),
+                        border: UiRect::all(px(2.0)),
+                        border_radius: BorderRadius::all(px(8.0)),
+                        ..default()
+                    },
+                    BackgroundColor(BevyColor::srgb(0.01, 0.04, 0.09)),
+                    BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                ))
+                .with_children(|panel| {
+                    panel.spawn((
+                        Text::new("LEVEL"),
+                        TextFont {
+                            font_size: FontSize::Px(20.0),
+                            ..default()
+                        },
+                        TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                    ));
+
+                    panel
+                        .spawn(Node {
+                            width: percent(100.0),
+                            justify_content: JustifyContent::SpaceBetween,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        })
+                        .with_children(|level_selector| {
+                            level_selector
+                                .spawn((
+                                    Button,
+                                    Node {
+                                        width: px(72.0),
+                                        height: px(56.0),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        border: UiRect::all(px(2.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                                    BorderColor::all(BevyColor::srgb(0.1, 0.45, 1.0)),
+                                    LevelAdjustment::Decrease,
+                                ))
+                                .with_children(|button| {
+                                    button.spawn((
+                                        Text::new("-"),
+                                        TextFont {
+                                            font_size: FontSize::Px(30.0),
+                                            ..default()
+                                        },
+                                        TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                                    ));
+                                });
+
+                            level_selector.spawn((
+                                Text::new(game_settings.level.to_string()),
+                                TextFont {
+                                    font_size: FontSize::Px(34.0),
+                                    ..default()
+                                },
+                                TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                                SettingsLevelText,
+                            ));
+
+                            level_selector
+                                .spawn((
+                                    Button,
+                                    Node {
+                                        width: px(72.0),
+                                        height: px(56.0),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        border: UiRect::all(px(2.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                                    BorderColor::all(BevyColor::srgb(0.1, 0.45, 1.0)),
+                                    LevelAdjustment::Increase,
+                                ))
+                                .with_children(|button| {
+                                    button.spawn((
+                                        Text::new("+"),
+                                        TextFont {
+                                            font_size: FontSize::Px(30.0),
+                                            ..default()
+                                        },
+                                        TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                                    ));
+                                });
+                        });
+
+                    panel.spawn((
+                        Text::new("HIGHER LEVEL = FASTER FALL"),
+                        TextFont {
+                            font_size: FontSize::Px(15.0),
+                            ..default()
+                        },
+                        TextColor(BevyColor::srgb(0.65, 0.65, 0.65)),
+                    ));
+
+                    panel
+                        .spawn((
+                            Button,
+                            Node {
+                                width: percent(100.0),
+                                height: px(56.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(px(2.0)),
+                                ..default()
+                            },
+                            BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                            BorderColor::all(BevyColor::srgb(0.1, 0.45, 1.0)),
+                            SettingsBackButton,
+                        ))
+                        .with_children(|button| {
+                            button.spawn((
+                                Text::new("BACK"),
+                                TextFont {
+                                    font_size: FontSize::Px(22.0),
+                                    ..default()
+                                },
+                                TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
                             ));
                         });
                 });
