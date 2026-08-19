@@ -542,37 +542,12 @@ impl Figure {
     }
 }
 
-fn make_block_material(base_color: BevyColor, material: Material) -> StandardMaterial {
-    match material {
-        Material::Metal => StandardMaterial {
-            base_color,
-            metallic: 1.0,
-            perceptual_roughness: 0.2,
-            ..default()
-        },
-        Material::Rubber => StandardMaterial {
-            base_color,
-            metallic: 0.0,
-            perceptual_roughness: 0.9,
-            ..default()
-        },
-        Material::Crystal => StandardMaterial {
-            base_color,
-            metallic: 0.0,
-            perceptual_roughness: 0.1,
-            specular_transmission: 0.8,
-            diffuse_transmission: 0.2,
-            thickness: 0.7,
-            ior: 1.5,
-            ..default()
-        },
-        Material::Neon => StandardMaterial {
-            base_color,
-            emissive: base_color.to_linear() * 4.0,
-            metallic: 0.0,
-            perceptual_roughness: 0.2,
-            ..default()
-        },
+fn make_block_material(base_color: BevyColor, _material: Material) -> StandardMaterial {
+    StandardMaterial {
+        base_color,
+        metallic: 0.1,
+        perceptual_roughness: 0.28,
+        ..default()
     }
 }
 
@@ -1442,16 +1417,25 @@ fn draw_well(mut gizmos: Gizmos, game: Res<GameModel>) {
     let max_y = game.well.height as f32 - 0.5;
     let entrance_z = -0.5;
     let bottom_z = game.well.depth as f32 - 0.5;
-    let wall_color = BevyColor::srgba(0.15, 0.45, 0.65, 0.45);
+    let wall_guide_color = BevyColor::srgba(0.12, 0.38, 0.62, 0.18);
     let entrance_color = BevyColor::srgb(0.25, 0.8, 1.0);
-    let bottom_color = BevyColor::srgba(0.25, 0.65, 0.85, 0.7);
+    let bottom_color = BevyColor::srgba(0.25, 0.65, 0.85, 0.8);
 
     for z_index in 0..=game.well.depth {
+        let is_boundary = z_index == 0 || z_index == game.well.depth;
+        if !is_boundary && z_index % 2 != 0 {
+            continue;
+        }
+
         let z = z_index as f32 - 0.5;
         let color = if z_index == 0 {
             entrance_color
+        } else if z_index == game.well.depth {
+            bottom_color
         } else {
-            wall_color
+            let depth_fraction = z_index as f32 / game.well.depth as f32;
+            let alpha = 0.3 - depth_fraction * 0.16;
+            BevyColor::srgba(0.12, 0.42, 0.7, alpha)
         };
 
         gizmos.line(
@@ -1482,12 +1466,12 @@ fn draw_well(mut gizmos: Gizmos, game: Res<GameModel>) {
         gizmos.line(
             Vec3::new(x, min_y, entrance_z),
             Vec3::new(x, min_y, bottom_z),
-            wall_color,
+            wall_guide_color,
         );
         gizmos.line(
             Vec3::new(x, max_y, entrance_z),
             Vec3::new(x, max_y, bottom_z),
-            wall_color,
+            wall_guide_color,
         );
         gizmos.line(
             Vec3::new(x, min_y, bottom_z),
@@ -1502,12 +1486,12 @@ fn draw_well(mut gizmos: Gizmos, game: Res<GameModel>) {
         gizmos.line(
             Vec3::new(min_x, y, entrance_z),
             Vec3::new(min_x, y, bottom_z),
-            wall_color,
+            wall_guide_color,
         );
         gizmos.line(
             Vec3::new(max_x, y, entrance_z),
             Vec3::new(max_x, y, bottom_z),
-            wall_color,
+            wall_guide_color,
         );
         gizmos.line(
             Vec3::new(min_x, y, bottom_z),
