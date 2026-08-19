@@ -540,6 +540,27 @@ impl Figure {
     }
 }
 
+fn rotated_figure_with_entrance_kick(well: &Well, figure: &Figure, axis: Axis) -> Option<Figure> {
+    let mut candidate = figure.clone();
+    candidate.rotate_90(axis);
+
+    let min_z = candidate
+        .blocks
+        .iter()
+        .map(|block| block.position.z)
+        .min()?;
+
+    if min_z < 0 {
+        candidate.move_by(Vec3i {
+            x: 0,
+            y: 0,
+            z: -min_z,
+        });
+    }
+
+    well.can_place_figure(&candidate).then_some(candidate)
+}
+
 fn make_block_material(base_color: BevyColor, _material: Material) -> StandardMaterial {
     StandardMaterial {
         base_color,
@@ -596,6 +617,7 @@ fn main() {
             (
                 handle_input,
                 apply_gravity,
+                sync_score_text,
                 sync_figure_position,
                 sync_next_figure_preview,
                 sync_game_over_text,
@@ -1187,7 +1209,7 @@ fn handle_input(
     mut game: ResMut<GameModel>,
     block_visuals: Res<BlockVisualAssets>,
     mut line: Query<&mut Visibility, With<DebugLine>>,
-    locked_blocks: Query<(Entity, &LockedBlock)>,
+    locked_blocks: Query<Entity, With<LockedBlock>>,
 ) {
     if game.game_over {
         return;
@@ -1224,38 +1246,35 @@ fn handle_input(
     }
 
     if keyboard.just_pressed(KeyCode::KeyX) {
-        let mut candidate = game.active_figure.clone();
-        candidate.rotate_90(Axis::X);
-
-        if game.well.can_place_figure(&candidate) {
+        if let Some(candidate) =
+            rotated_figure_with_entrance_kick(&game.well, &game.active_figure, Axis::X)
+        {
             game.active_figure = candidate;
             info!("rotate X: {:?}", game.active_figure.blocks);
         } else {
-            info!("rotation X blocked by well bounds");
+            info!("rotation X blocked by well bounds or occupied cells");
         }
     }
 
     if keyboard.just_pressed(KeyCode::KeyY) {
-        let mut candidate = game.active_figure.clone();
-        candidate.rotate_90(Axis::Y);
-
-        if game.well.can_place_figure(&candidate) {
+        if let Some(candidate) =
+            rotated_figure_with_entrance_kick(&game.well, &game.active_figure, Axis::Y)
+        {
             game.active_figure = candidate;
             info!("rotate Y: {:?}", game.active_figure.blocks);
         } else {
-            info!("rotation Y blocked by well bounds");
+            info!("rotation Y blocked by well bounds or occupied cells");
         }
     }
 
     if keyboard.just_pressed(KeyCode::KeyZ) {
-        let mut candidate = game.active_figure.clone();
-        candidate.rotate_90(Axis::Z);
-
-        if game.well.can_place_figure(&candidate) {
+        if let Some(candidate) =
+            rotated_figure_with_entrance_kick(&game.well, &game.active_figure, Axis::Z)
+        {
             game.active_figure = candidate;
             info!("rotate Z: {:?}", game.active_figure.blocks);
         } else {
-            info!("rotation Z blocked by well bounds");
+            info!("rotation Z blocked by well bounds or occupied cells");
         }
     }
 
@@ -1378,6 +1397,16 @@ fn sync_next_figure_preview(
             preview_block_translation(block, game.next_figure.pivot, preview_scale);
 
         material.0 = block_visuals.material_for(block);
+    }
+}
+
+fn sync_score_text(game: Res<GameModel>, mut score_texts: Query<&mut Text, With<ScoreText>>) {
+    if !game.is_changed() {
+        return;
+    }
+
+    for mut text in &mut score_texts {
+        text.0 = format!("{:06}", game.score);
     }
 }
 
