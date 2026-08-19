@@ -8,7 +8,7 @@ use bevy::{
     ui::widget::ViewportNode,
 };
 use rand::seq::SliceRandom;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 const DESTROYING_BLOCK_LIFETIME_SECONDS: f32 = 0.8;
 const SCORE_PER_CLEARED_PLANE: u64 = 100;
@@ -127,9 +127,7 @@ struct FigureBlockIndex {
 }
 
 #[derive(Component)]
-struct LockedBlock {
-    position: Vec3i,
-}
+struct LockedBlock;
 
 #[derive(Component)]
 struct GameOverOverlay;
@@ -1160,6 +1158,29 @@ fn setup_game(
     commands.insert_resource(block_visuals);
 }
 
+fn rebuild_locked_block_visuals(
+    commands: &mut Commands,
+    well: &Well,
+    block_visuals: &BlockVisualAssets,
+    locked_blocks: &Query<Entity, With<LockedBlock>>,
+) {
+    for entity in locked_blocks {
+        commands.entity(entity).despawn();
+    }
+
+    for plane in &well.planes {
+        for block in plane.blocks.iter().flatten() {
+            commands.spawn((
+                Mesh3d(block_visuals.mesh.clone()),
+                MeshMaterial3d(block_visuals.material_for(*block)),
+                Transform::from_translation(logical_position_to_bevy_translation(block.position)),
+                LockedBlock,
+                DespawnOnExit(AppState::InGame),
+            ));
+        }
+    }
+}
+
 fn handle_input(
     mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -1277,18 +1298,6 @@ fn handle_input(
             );
         }
 
-        let cleared_positions = cleared_planes
-            .iter()
-            .flat_map(|plane| plane.blocks.iter().flatten())
-            .map(|block| block.position)
-            .collect::<HashSet<_>>();
-
-        for (entity, locked_block) in &locked_blocks {
-            if cleared_positions.contains(&locked_block.position) {
-                commands.entity(entity).despawn();
-            }
-        }
-
         for plane in &cleared_planes {
             for block in plane.blocks.iter().flatten() {
                 let neon_block = Block {
@@ -1321,21 +1330,7 @@ fn handle_input(
         info!("occupied cell count: {}", game.well.occupied_count());
         info!("cleared planes: {}", cleared_planes.len());
 
-        for block in &locked_figure.blocks {
-            if cleared_positions.contains(&block.position) {
-                continue;
-            }
-
-            commands.spawn((
-                Mesh3d(block_visuals.mesh.clone()),
-                MeshMaterial3d(block_visuals.material_for(*block)),
-                Transform::from_translation(logical_position_to_bevy_translation(block.position)),
-                LockedBlock {
-                    position: block.position,
-                },
-                DespawnOnExit(AppState::InGame),
-            ));
-        }
+        rebuild_locked_block_visuals(&mut commands, &game.well, &block_visuals, &locked_blocks);
 
         game.active_figure = game.next_figure.clone();
         game.next_figure = game.figure_bag.next_figure();
@@ -1507,7 +1502,7 @@ fn apply_gravity(
     mut gravity: ResMut<GravityTimer>,
     mut game: ResMut<GameModel>,
     block_visuals: Res<BlockVisualAssets>,
-    locked_blocks: Query<(Entity, &LockedBlock)>,
+    locked_blocks: Query<Entity, With<LockedBlock>>,
 ) {
     if game.game_over {
         return;
@@ -1539,18 +1534,6 @@ fn apply_gravity(
             );
         }
 
-        let cleared_positions = cleared_planes
-            .iter()
-            .flat_map(|plane| plane.blocks.iter().flatten())
-            .map(|block| block.position)
-            .collect::<HashSet<_>>();
-
-        for (entity, locked_block) in &locked_blocks {
-            if cleared_positions.contains(&locked_block.position) {
-                commands.entity(entity).despawn();
-            }
-        }
-
         for plane in &cleared_planes {
             for block in plane.blocks.iter().flatten() {
                 let neon_block = Block {
@@ -1580,21 +1563,7 @@ fn apply_gravity(
             info!("cleared {} planes", cleared_planes.len());
         }
 
-        for block in &locked_figure.blocks {
-            if cleared_positions.contains(&block.position) {
-                continue;
-            }
-
-            commands.spawn((
-                Mesh3d(block_visuals.mesh.clone()),
-                MeshMaterial3d(block_visuals.material_for(*block)),
-                Transform::from_translation(logical_position_to_bevy_translation(block.position)),
-                LockedBlock {
-                    position: block.position,
-                },
-                DespawnOnExit(AppState::InGame),
-            ));
-        }
+        rebuild_locked_block_visuals(&mut commands, &game.well, &block_visuals, &locked_blocks);
 
         game.active_figure = game.next_figure.clone();
         game.next_figure = game.figure_bag.next_figure();
