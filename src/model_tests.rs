@@ -51,6 +51,16 @@ fn figure_bag_returns_every_kind_once_before_refill() {
 }
 
 #[test]
+fn gravity_gets_faster_as_level_increases() {
+    assert_eq!(gravity_seconds_for_level(0), gravity_seconds_for_level(1));
+    assert_eq!(gravity_seconds_for_level(11), gravity_seconds_for_level(10));
+
+    for level in MIN_LEVEL..MAX_LEVEL {
+        assert!(gravity_seconds_for_level(level) > gravity_seconds_for_level(level + 1));
+    }
+}
+
+#[test]
 fn score_is_based_on_cleared_plane_count() {
     assert_eq!(score_for_cleared_planes(0), 0);
     assert_eq!(score_for_cleared_planes(1), 100);
@@ -194,6 +204,22 @@ fn rotation_order_matters() {
     assert_eq!(x_then_y, Vec3i { x: 2, y: -3, z: -1 });
     assert_eq!(y_then_x, Vec3i { x: 3, y: 1, z: 2 });
     assert_ne!(x_then_y, y_then_x);
+}
+
+#[test]
+fn entrance_kick_allows_i_figure_to_rotate_into_depth_at_spawn() {
+    let well = Well::new(6, 6, 12);
+    let figure = Figure::new(FigureKind::I, Color::Cyan, Material::Metal);
+
+    let rotated = rotated_figure_with_entrance_kick(&well, &figure, Axis::Y)
+        .expect("I figure should rotate into the well at the entrance");
+    let min_z = rotated.blocks.iter().map(|block| block.position.z).min();
+    let max_z = rotated.blocks.iter().map(|block| block.position.z).max();
+
+    assert_eq!(rotated.pivot.z, 2);
+    assert_eq!(min_z, Some(0));
+    assert_eq!(max_z, Some(3));
+    assert!(well.can_place_figure(&rotated));
 }
 
 #[test]
