@@ -1638,8 +1638,6 @@ fn handle_restart_button(
     locked_blocks: Query<Entity, With<LockedBlock>>,
     destroying_blocks: Query<Entity, With<DestroyingBlock>>,
 ) {
-    println!("system started");
-
     for interaction in &restart_buttons {
         if *interaction != Interaction::Pressed {
             continue;
