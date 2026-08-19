@@ -612,6 +612,10 @@ fn main() {
         )
         .add_systems(
             Update,
+            handle_quit_button.run_if(in_state(AppState::MainMenu)),
+        )
+        .add_systems(
+            Update,
             handle_main_menu_button.run_if(in_state(AppState::InGame)),
         )
         .add_systems(
@@ -1644,6 +1648,17 @@ fn handle_play_button(
     for interaction in &buttons {
         if *interaction == Interaction::Pressed {
             next_state.set(AppState::InGame);
+        }
+    }
+}
+
+fn handle_quit_button(
+    buttons: Query<&Interaction, (Changed<Interaction>, With<QuitButton>)>,
+    mut app_exit: MessageWriter<AppExit>,
+) {
+    for interaction in &buttons {
+        if *interaction == Interaction::Pressed {
+            app_exit.write(AppExit::Success);
         }
     }
 }
