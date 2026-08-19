@@ -1583,6 +1583,7 @@ fn apply_gravity(
                             TimerMode::Once,
                         ),
                     },
+                    DespawnOnExit(AppState::InGame),
                 ));
             }
         }
@@ -1603,6 +1604,7 @@ fn apply_gravity(
                 LockedBlock {
                     position: block.position,
                 },
+                DespawnOnExit(AppState::InGame),
             ));
         }
 
@@ -1682,7 +1684,7 @@ fn handle_main_menu_button(
 ) {
     for interaction in &buttons {
         if *interaction == Interaction::Pressed {
-            next_state.set(AppState::InGame);
+            next_state.set(AppState::MainMenu);
         }
     }
 }
