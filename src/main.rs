@@ -13,10 +13,14 @@ use std::collections::HashMap;
 const DESTROYING_BLOCK_LIFETIME_SECONDS: f32 = 0.8;
 const SCORE_PER_CLEARED_PLANE: u64 = 100;
 const PREVIEW_RENDER_LAYER: usize = 1;
+const PREVIEW_CAMERA_DISTANCE: f32 = 4.5;
+const PREVIEW_BLOCK_SCALE: f32 = 1.0;
 const MIN_LEVEL: u8 = 1;
 const MAX_LEVEL: u8 = 10;
 const LEVEL_ONE_GRAVITY_SECONDS: f32 = 0.9;
 const GRAVITY_SECONDS_PER_LEVEL: f32 = 0.08;
+const WELL_WIDTH: i32 = 4;
+const WELL_HEIGHT: i32 = 4;
 
 #[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 enum AppState {
@@ -32,6 +36,12 @@ enum Axis {
     X,
     Y,
     Z,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RotationDirection {
+    Positive,
+    Negative,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -60,6 +70,106 @@ enum FigureKind {
     J,
     S,
     Z,
+    Tripod,
+    ScrewLeft,
+    ScrewRight,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PitSize {
+    Shallow,
+    Classic,
+    Wide,
+}
+
+impl PitSize {
+    fn dimensions(self) -> (i32, i32, i32) {
+        match self {
+            Self::Shallow => (4, 4, 8),
+            Self::Classic => (4, 4, 12),
+            Self::Wide => (5, 5, 14),
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Shallow => "4x4x8",
+            Self::Classic => "4x4x12",
+            Self::Wide => "5x5x14",
+        }
+    }
+
+    fn previous(self) -> Self {
+        match self {
+            Self::Shallow => Self::Wide,
+            Self::Classic => Self::Shallow,
+            Self::Wide => Self::Classic,
+        }
+    }
+
+    fn next(self) -> Self {
+        match self {
+            Self::Shallow => Self::Classic,
+            Self::Classic => Self::Wide,
+            Self::Wide => Self::Shallow,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlockSet {
+    Flat,
+    Basic3d,
+    Extended,
+}
+
+impl BlockSet {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Flat => "FLAT",
+            Self::Basic3d => "BASIC 3D",
+            Self::Extended => "EXTENDED",
+        }
+    }
+
+    fn figure_kinds(self) -> Vec<FigureKind> {
+        let flat = [
+            FigureKind::I,
+            FigureKind::O,
+            FigureKind::T,
+            FigureKind::L,
+            FigureKind::J,
+            FigureKind::S,
+            FigureKind::Z,
+        ];
+        let three_dimensional = [
+            FigureKind::Tripod,
+            FigureKind::ScrewLeft,
+            FigureKind::ScrewRight,
+        ];
+
+        match self {
+            Self::Flat => flat.to_vec(),
+            Self::Basic3d => three_dimensional.to_vec(),
+            Self::Extended => flat.into_iter().chain(three_dimensional).collect(),
+        }
+    }
+
+    fn previous(self) -> Self {
+        match self {
+            Self::Flat => Self::Extended,
+            Self::Basic3d => Self::Flat,
+            Self::Extended => Self::Basic3d,
+        }
+    }
+
+    fn next(self) -> Self {
+        match self {
+            Self::Flat => Self::Basic3d,
+            Self::Basic3d => Self::Extended,
+            Self::Extended => Self::Flat,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,16 +183,23 @@ struct Vec3i {
 struct BlockVisualAssets {
     mesh: Handle<Mesh>,
     materials: HashMap<(Color, Material), Handle<StandardMaterial>>,
+    active_materials: HashMap<(Color, Material), Handle<StandardMaterial>>,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 struct GameSettings {
     level: u8,
+    pit_size: PitSize,
+    block_set: BlockSet,
 }
 
 impl Default for GameSettings {
     fn default() -> Self {
-        Self { level: MIN_LEVEL }
+        Self {
+            level: MIN_LEVEL,
+            pit_size: PitSize::Classic,
+            block_set: BlockSet::Flat,
+        }
     }
 }
 
@@ -109,6 +226,8 @@ struct Plane {
 #[derive(Debug)]
 struct FigureBag {
     figures: Vec<Figure>,
+    block_set: BlockSet,
+    spawn_pivot: Vec3i,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,6 +304,11 @@ struct GameViewportArea;
 struct FiguresPlacedText;
 
 #[derive(Component)]
+struct PitDepthCell {
+    z_index: usize,
+}
+
+#[derive(Component)]
 struct RestartButton;
 
 #[derive(Component)]
@@ -217,6 +341,28 @@ enum LevelAdjustment {
 #[derive(Component)]
 struct SettingsLevelText;
 
+#[derive(Debug, Clone, Copy)]
+enum SelectionDirection {
+    Previous,
+    Next,
+}
+
+#[derive(Component)]
+struct PitSizeAdjustment {
+    direction: SelectionDirection,
+}
+
+#[derive(Component)]
+struct BlockSetAdjustment {
+    direction: SelectionDirection,
+}
+
+#[derive(Component)]
+struct SettingsPitSizeText;
+
+#[derive(Component)]
+struct SettingsBlockSetText;
+
 #[derive(Component)]
 struct QuitButton;
 
@@ -233,9 +379,16 @@ impl Plane {
 }
 
 impl FigureBag {
-    fn new() -> Self {
+    fn new(block_set: BlockSet, pit_size: PitSize) -> Self {
+        let (width, height, _) = pit_size.dimensions();
         let mut bag = Self {
             figures: Vec::new(),
+            block_set,
+            spawn_pivot: Vec3i {
+                x: width / 2 - 1,
+                y: height / 2 - 1,
+                z: 0,
+            },
         };
         bag.refill();
 
@@ -243,7 +396,7 @@ impl FigureBag {
     }
 
     fn refill(&mut self) {
-        let kinds = vec![FigureKind::I];
+        let kinds = self.block_set.figure_kinds();
 
         let colors = vec![
             Color::Orange,
@@ -264,7 +417,9 @@ impl FigureBag {
             .into_iter()
             .zip(colors.into_iter().cycle())
             .zip(materials.into_iter().cycle())
-            .map(|((kind, color), material)| Figure::new(kind, color, material))
+            .map(|((kind, color), material)| {
+                Figure::new_at(kind, color, material, self.spawn_pivot)
+            })
             .collect();
 
         let mut rng = rand::rng();
@@ -287,6 +442,13 @@ impl BlockVisualAssets {
         self.materials
             .get(&(block.color, block.material))
             .expect("every block appearance must have a visual material")
+            .clone()
+    }
+
+    fn active_material_for(&self, block: Block) -> Handle<StandardMaterial> {
+        self.active_materials
+            .get(&(block.color, block.material))
+            .expect("every active block appearance must have a translucent material")
             .clone()
     }
 }
@@ -426,13 +588,14 @@ impl Well {
 }
 
 impl GameModel {
-    fn new() -> Self {
-        let mut figure_bag = FigureBag::new();
+    fn new(settings: GameSettings) -> Self {
+        let mut figure_bag = FigureBag::new(settings.block_set, settings.pit_size);
         let active_figure = figure_bag.next_figure();
         let next_figure = figure_bag.next_figure();
+        let (well_width, well_height, well_depth) = settings.pit_size.dimensions();
 
         Self {
-            well: Well::new(6, 6, 12),
+            well: Well::new(well_width, well_height, well_depth),
             active_figure: active_figure,
             next_figure: next_figure,
             show_line: true,
@@ -484,6 +647,19 @@ impl Vec3i {
 
 impl Figure {
     fn new(kind: FigureKind, color: Color, material: Material) -> Self {
+        Self::new_at(
+            kind,
+            color,
+            material,
+            Vec3i {
+                x: WELL_WIDTH / 2 - 1,
+                y: WELL_HEIGHT / 2 - 1,
+                z: 0,
+            },
+        )
+    }
+
+    fn new_at(kind: FigureKind, color: Color, material: Material, pivot: Vec3i) -> Self {
         let local_positions = match kind {
             FigureKind::I => vec![
                 Vec3i { x: -1, y: 0, z: 0 },
@@ -527,9 +703,25 @@ impl Figure {
                 Vec3i { x: 0, y: 1, z: 0 },
                 Vec3i { x: 1, y: 1, z: 0 },
             ],
+            FigureKind::Tripod => vec![
+                Vec3i { x: 0, y: 0, z: 0 },
+                Vec3i { x: 1, y: 0, z: 0 },
+                Vec3i { x: 0, y: 1, z: 0 },
+                Vec3i { x: 0, y: 0, z: 1 },
+            ],
+            FigureKind::ScrewLeft => vec![
+                Vec3i { x: -1, y: 0, z: 0 },
+                Vec3i { x: 0, y: 0, z: 0 },
+                Vec3i { x: 0, y: 1, z: 0 },
+                Vec3i { x: 0, y: 1, z: 1 },
+            ],
+            FigureKind::ScrewRight => vec![
+                Vec3i { x: 1, y: 0, z: 0 },
+                Vec3i { x: 0, y: 0, z: 0 },
+                Vec3i { x: 0, y: 1, z: 0 },
+                Vec3i { x: 0, y: 1, z: 1 },
+            ],
         };
-
-        let pivot = Vec3i { x: 2, y: 3, z: 0 };
 
         let blocks = local_positions
             .into_iter()
@@ -564,10 +756,83 @@ impl Figure {
     }
 }
 
-fn rotated_figure_with_entrance_kick(well: &Well, figure: &Figure, axis: Axis) -> Option<Figure> {
-    let mut candidate = figure.clone();
-    candidate.rotate_90(axis);
+fn sorted_orientation(mut positions: Vec<Vec3i>) -> Vec<Vec3i> {
+    positions.sort_by_key(|position| (position.x, position.y, position.z));
+    positions
+}
 
+fn orientation_signature(figure: &Figure) -> Vec<Vec3i> {
+    sorted_orientation(
+        figure
+            .blocks
+            .iter()
+            .map(|block| block.position.relative_to(figure.pivot))
+            .collect(),
+    )
+}
+
+fn normalized_orientation(positions: &[Vec3i]) -> Vec<Vec3i> {
+    let min_x = positions
+        .iter()
+        .map(|position| position.x)
+        .min()
+        .unwrap_or(0);
+    let min_y = positions
+        .iter()
+        .map(|position| position.y)
+        .min()
+        .unwrap_or(0);
+    let min_z = positions
+        .iter()
+        .map(|position| position.z)
+        .min()
+        .unwrap_or(0);
+
+    sorted_orientation(
+        positions
+            .iter()
+            .map(|position| Vec3i {
+                x: position.x - min_x,
+                y: position.y - min_y,
+                z: position.z - min_z,
+            })
+            .collect(),
+    )
+}
+
+fn unique_figure_orientations(kind: FigureKind) -> Vec<Vec<Vec3i>> {
+    let initial_figure = Figure::new(kind, Color::Cyan, Material::Metal);
+    let mut orientations = vec![orientation_signature(&initial_figure)];
+    let mut next_orientation_index = 0;
+
+    while next_orientation_index < orientations.len() {
+        let current = orientations[next_orientation_index].clone();
+
+        for axis in [Axis::X, Axis::Y, Axis::Z] {
+            let rotated = sorted_orientation(
+                current
+                    .iter()
+                    .map(|position| position.rotated_90(axis))
+                    .collect(),
+            );
+
+            let rotated_shape = normalized_orientation(&rotated);
+            let already_known = orientations
+                .iter()
+                .any(|orientation| normalized_orientation(orientation) == rotated_shape);
+
+            if !already_known {
+                orientations.push(rotated);
+            }
+        }
+
+        next_orientation_index += 1;
+    }
+
+    orientations
+}
+
+fn figure_with_entrance_kick(well: &Well, mut candidate: Figure) -> Option<Figure> {
     let min_z = candidate
         .blocks
         .iter()
@@ -585,30 +850,111 @@ fn rotated_figure_with_entrance_kick(well: &Well, figure: &Figure, axis: Axis) -
     well.can_place_figure(&candidate).then_some(candidate)
 }
 
+fn figure_with_next_orientation(well: &Well, figure: &Figure) -> Option<Figure> {
+    let orientations = unique_figure_orientations(figure.kind);
+    let current = orientation_signature(figure);
+    let current_shape = normalized_orientation(&current);
+    let current_index = orientations
+        .iter()
+        .position(|orientation| normalized_orientation(orientation) == current_shape)
+        .unwrap_or(0);
+
+    for offset in 1..orientations.len() {
+        let orientation = &orientations[(current_index + offset) % orientations.len()];
+        let mut candidate = figure.clone();
+
+        for (block, local_position) in candidate.blocks.iter_mut().zip(orientation) {
+            block.position = candidate.pivot.translated(*local_position);
+        }
+
+        if let Some(candidate) = figure_with_entrance_kick(well, candidate) {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn rotated_figure_with_entrance_kick(
+    well: &Well,
+    figure: &Figure,
+    axis: Axis,
+    direction: RotationDirection,
+) -> Option<Figure> {
+    let mut candidate = figure.clone();
+    let quarter_turns = match direction {
+        RotationDirection::Positive => 1,
+        RotationDirection::Negative => 3,
+    };
+
+    for _ in 0..quarter_turns {
+        candidate.rotate_90(axis);
+    }
+
+    figure_with_entrance_kick(well, candidate)
+}
+
 fn gravity_seconds_for_level(level: u8) -> f32 {
     let level = level.clamp(MIN_LEVEL, MAX_LEVEL);
     LEVEL_ONE_GRAVITY_SECONDS - (level - MIN_LEVEL) as f32 * GRAVITY_SECONDS_PER_LEVEL
 }
 
+fn block_visual_color(color: Color) -> BevyColor {
+    match color {
+        Color::Cyan => BevyColor::srgb(0.08, 0.68, 0.72),
+        Color::Orange => BevyColor::srgb(0.9, 0.12, 0.04),
+        Color::Green => BevyColor::srgb(0.3, 0.78, 0.16),
+        Color::Purple => BevyColor::srgb(0.7, 0.12, 0.72),
+        Color::Yellow => BevyColor::srgb(0.95, 0.68, 0.06),
+    }
+}
+
 fn make_block_material(base_color: BevyColor, _material: Material) -> StandardMaterial {
     StandardMaterial {
         base_color,
-        metallic: 0.1,
-        perceptual_roughness: 0.28,
+        metallic: 0.0,
+        perceptual_roughness: 0.72,
         ..default()
     }
 }
 
-// Boundary between the logical integer grid and Bevy's floating-point world.
-// One logical cell currently corresponds to one Bevy world unit.
+fn make_active_block_material(base_color: BevyColor, material: Material) -> StandardMaterial {
+    StandardMaterial {
+        base_color: base_color.with_alpha(0.42),
+        alpha_mode: AlphaMode::Blend,
+        ..make_block_material(base_color, material)
+    }
+}
+
 fn logical_position_to_bevy_translation(position: Vec3i) -> Vec3 {
     Vec3::new(position.x as f32, position.y as f32, position.z as f32)
 }
 
-fn preview_block_translation(block: Block, figure_pivot: Vec3i, scale: f32) -> Vec3 {
-    let local_position = block.position.relative_to(figure_pivot);
+fn game_camera_z_for_well(well: &Well) -> f32 {
+    let entrance_z = -0.5;
+    let largest_entrance_dimension = well.width.max(well.height) as f32;
 
-    logical_position_to_bevy_translation(local_position) * scale
+    entrance_z - largest_entrance_dimension * 2.0
+}
+
+fn preview_figure_center(figure: &Figure) -> Vec3 {
+    let mut local_positions = figure.blocks.iter().map(|block| {
+        logical_position_to_bevy_translation(block.position.relative_to(figure.pivot))
+    });
+    let first_position = local_positions.next().unwrap_or(Vec3::ZERO);
+    let (min, max) = local_positions
+        .fold((first_position, first_position), |(min, max), position| {
+            (min.min(position), max.max(position))
+        });
+
+    (min + max) * 0.5
+}
+
+fn preview_block_translation(block: Block, figure: &Figure, scale: f32) -> Vec3 {
+    let local_position =
+        logical_position_to_bevy_translation(block.position.relative_to(figure.pivot));
+
+    (local_position - preview_figure_center(figure)) * scale
 }
 
 fn main() {
@@ -622,7 +968,7 @@ fn main() {
         }))
         .init_state::<AppState>()
         .insert_resource(GameSettings::default())
-        .insert_resource(GameModel::new())
+        .insert_resource(GameModel::new(GameSettings::default()))
         .insert_resource(ClearColor(BevyColor::srgb(0.0, 0.0, 0.0)))
         .insert_resource(GravityTimer {
             timer: Timer::from_seconds(gravity_seconds_for_level(MIN_LEVEL), TimerMode::Repeating),
@@ -643,7 +989,11 @@ fn main() {
             Update,
             (
                 handle_level_adjustment_buttons,
+                handle_pit_size_adjustment_buttons,
+                handle_block_set_adjustment_buttons,
                 sync_settings_level_text,
+                sync_settings_pit_size_text,
+                sync_settings_block_set_text,
                 handle_settings_back_button,
             )
                 .chain()
@@ -666,6 +1016,7 @@ fn main() {
                 sync_figures_placed_text,
                 sync_figure_position,
                 sync_next_figure_preview,
+                sync_pit_depth_meter,
                 sync_game_over_text,
                 draw_well,
                 animate_destroying_blocks,
@@ -690,7 +1041,7 @@ fn setup_game(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    *game = GameModel::new();
+    *game = GameModel::new(*game_settings);
     gravity.timer = Timer::from_seconds(
         gravity_seconds_for_level(game_settings.level),
         TimerMode::Repeating,
@@ -721,7 +1072,12 @@ fn setup_game(
                 ..default()
             },
             RenderTarget::Image(game_viewport_image_handle.clone().into()),
-            Transform::from_xyz(well_center_x, well_center_y, -12.0).looking_at(
+            Transform::from_xyz(
+                well_center_x,
+                well_center_y,
+                game_camera_z_for_well(&game.well),
+            )
+            .looking_at(
                 Vec3::new(well_center_x, well_center_y, well_center_z),
                 Vec3::Y,
             ),
@@ -751,7 +1107,7 @@ fn setup_game(
                 ..default()
             },
             RenderTarget::Image(preview_viewport_image_handle.into()),
-            Transform::from_xyz(0.0, 0.0, -6.0).looking_at(Vec3::ZERO, Vec3::Y),
+            Transform::from_xyz(0.0, 0.0, -PREVIEW_CAMERA_DISTANCE).looking_at(Vec3::ZERO, Vec3::Y),
             RenderLayers::layer(PREVIEW_RENDER_LAYER),
             PreviewCamera,
             DespawnOnExit(AppState::InGame),
@@ -771,69 +1127,60 @@ fn setup_game(
             DespawnOnExit(AppState::InGame),
         ))
         .with_children(|root| {
-            // LeftPanel
             root.spawn((
                 Node {
-                    width: percent(22.0),
+                    width: percent(8.0),
                     height: percent(100.0),
-                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
-                    padding: UiRect::all(px(24.0)),
-                    row_gap: px(28.0),
-                    border: UiRect::right(px(2.0)),
+                    padding: UiRect::all(px(8.0)),
+                    border: UiRect::right(px(3.0)),
                     ..default()
                 },
-                BackgroundColor(BevyColor::srgb(0.01, 0.02, 0.04)),
-                BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                BackgroundColor(BevyColor::srgb(0.0, 0.0, 0.015)),
+                BorderColor::all(BevyColor::srgb(0.02, 0.08, 0.65)),
             ))
             .with_children(|left_panel| {
-                // NEXT BLOCK
                 left_panel
                     .spawn((
                         Node {
-                            width: percent(100.0),
+                            width: percent(72.0),
+                            height: percent(92.0),
                             flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::Center,
-                            row_gap: px(12.0),
-                            padding: UiRect::bottom(px(18.0)),
-                            border: UiRect::bottom(px(1.0)),
+                            padding: UiRect::vertical(px(3.0)),
+                            border: UiRect::horizontal(px(3.0)),
                             ..default()
                         },
-                        BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                        BackgroundColor(BevyColor::BLACK),
+                        BorderColor::all(BevyColor::srgb(0.12, 0.62, 0.16)),
                     ))
-                    .with_children(|next_block_section| {
-                        next_block_section.spawn((
-                            Text::new("NEXT BLOCK"),
-                            TextFont {
-                                font_size: FontSize::Px(18.0),
-                                ..default()
-                            },
-                            TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
-                        ));
-
-                        next_block_section.spawn((
-                            Node {
-                                width: percent(100.0),
-                                height: px(190.0),
-                                border: UiRect::all(px(2.0)),
-                                ..default()
-                            },
-                            BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
-                            BackgroundColor(BevyColor::BLACK),
-                            ViewportNode::new(preview_camera),
-                        ));
+                    .with_children(|meter| {
+                        for z_index in 0..game.well.depth as usize {
+                            meter.spawn((
+                                Node {
+                                    width: percent(100.0),
+                                    flex_grow: 1.0,
+                                    border: UiRect::bottom(px(1.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(BevyColor::BLACK),
+                                BorderColor::all(BevyColor::srgb(0.04, 0.2, 0.06)),
+                                PitDepthCell { z_index },
+                            ));
+                        }
                     });
             });
 
-            // GameViewportArea
             root.spawn((
                 Node {
                     flex_grow: 1.0,
                     height: percent(100.0),
                     position_type: PositionType::Relative,
+                    border: UiRect::horizontal(px(2.0)),
                     ..default()
                 },
                 BackgroundColor(BevyColor::BLACK),
+                BorderColor::all(BevyColor::srgb(0.02, 0.08, 0.4)),
                 GameViewportArea,
             ))
             .with_children(|viewport_area| {
@@ -962,20 +1309,19 @@ fn setup_game(
                             });
                     });
             });
-            // RightPanel
             root.spawn((
                 Node {
-                    width: percent(22.0),
+                    width: percent(19.0),
                     height: percent(100.0),
                     flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Center,
-                    padding: UiRect::all(px(24.0)),
-                    row_gap: px(28.0),
-                    border: UiRect::left(px(2.0)),
+                    padding: UiRect::all(px(12.0)),
+                    row_gap: px(8.0),
+                    border: UiRect::left(px(3.0)),
                     ..default()
                 },
-                BackgroundColor(BevyColor::srgb(0.01, 0.02, 0.04)),
-                BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                BackgroundColor(BevyColor::srgb(0.0, 0.0, 0.015)),
+                BorderColor::all(BevyColor::srgb(0.02, 0.08, 0.65)),
             ))
             .with_children(|right_panel| {
                 // LOGO
@@ -984,12 +1330,12 @@ fn setup_game(
                         Node {
                             width: percent(100.0),
                             flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::FlexEnd,
-                            padding: UiRect::bottom(px(18.0)),
-                            border: UiRect::bottom(px(2.0)),
+                            align_items: AlignItems::Center,
+                            padding: UiRect::bottom(px(10.0)),
+                            border: UiRect::bottom(px(3.0)),
                             ..default()
                         },
-                        BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                        BorderColor::all(BevyColor::srgb(0.02, 0.08, 0.65)),
                     ))
                     .with_children(|logo| {
                         logo.spawn((
@@ -1010,85 +1356,257 @@ fn setup_game(
                             TextColor(BevyColor::srgb(0.1, 0.45, 1.0)),
                         ));
                     });
-                // SCORE
-                right_panel.spawn((
-                    Text::new("SCORE"),
-                    TextFont {
-                        font_size: FontSize::Px(18.0),
-                        ..default()
-                    },
-                    TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
-                ));
-                right_panel.spawn((
-                    Text::new(format!("{:06}", game.score)),
-                    TextFont {
-                        font_size: FontSize::Px(30.0),
-                        ..default()
-                    },
-                    TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
-                    ScoreText,
-                ));
-                // FIGURES PLACED
-                right_panel
-                    .spawn((
-                        Node {
-                            width: percent(100.0),
-                            flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::Center,
-                            row_gap: px(6.0),
-                            padding: UiRect::bottom(px(16.0)),
-                            border: UiRect::bottom(px(1.0)),
-                            ..default()
-                        },
-                        BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
-                    ))
-                    .with_children(|cubes_section| {
-                        cubes_section.spawn((
-                            Text::new("FIGURES PLACED"),
-                            TextFont {
-                                font_size: FontSize::Px(18.0),
-                                ..default()
-                            },
-                            TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
-                        ));
 
-                        cubes_section.spawn((
-                            Text::new(format!("{:03}", game.figures_placed)),
-                            TextFont {
-                                font_size: FontSize::Px(30.0),
-                                ..default()
-                            },
-                            TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
-                            FiguresPlacedText,
-                        ));
-                    });
                 // LEVEL
                 right_panel
                     .spawn(Node {
                         width: percent(100.0),
                         flex_direction: FlexDirection::Column,
                         align_items: AlignItems::Center,
-                        row_gap: px(6.0),
+                        row_gap: px(4.0),
                         ..default()
                     })
                     .with_children(|level_section| {
                         level_section.spawn((
                             Text::new("LEVEL"),
                             TextFont {
-                                font_size: FontSize::Px(18.0),
+                                font_size: FontSize::Px(15.0),
                                 ..default()
                             },
-                            TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                            TextColor(BevyColor::srgb(0.2, 0.75, 0.7)),
                         ));
+                        level_section
+                            .spawn((
+                                Node {
+                                    width: percent(100.0),
+                                    height: px(38.0),
+                                    justify_content: JustifyContent::FlexEnd,
+                                    align_items: AlignItems::Center,
+                                    padding: UiRect::horizontal(px(10.0)),
+                                    border: UiRect::all(px(3.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(BevyColor::BLACK),
+                                BorderColor::all(BevyColor::srgb(0.02, 0.06, 0.55)),
+                            ))
+                            .with_children(|value| {
+                                value.spawn((
+                                    Text::new(game_settings.level.to_string()),
+                                    TextFont {
+                                        font_size: FontSize::Px(25.0),
+                                        ..default()
+                                    },
+                                    TextColor(BevyColor::srgb(0.92, 0.58, 0.16)),
+                                ));
+                            });
+                    });
 
-                        level_section.spawn((
-                            Text::new(game_settings.level.to_string()),
+                // NEXT BLOCK
+                right_panel
+                    .spawn(Node {
+                        width: percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: px(4.0),
+                        ..default()
+                    })
+                    .with_children(|next_block_section| {
+                        next_block_section.spawn((
+                            Text::new("NEXT"),
                             TextFont {
-                                font_size: FontSize::Px(30.0),
+                                font_size: FontSize::Px(15.0),
                                 ..default()
                             },
-                            TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                            TextColor(BevyColor::srgb(0.2, 0.75, 0.7)),
                         ));
+                        next_block_section.spawn((
+                            Node {
+                                width: percent(100.0),
+                                height: px(104.0),
+                                border: UiRect::all(px(3.0)),
+                                ..default()
+                            },
+                            BorderColor::all(BevyColor::srgb(0.02, 0.06, 0.55)),
+                            BackgroundColor(BevyColor::BLACK),
+                            ViewportNode::new(preview_camera),
+                        ));
+                    });
+
+                // SCORE
+                right_panel
+                    .spawn(Node {
+                        width: percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: px(4.0),
+                        ..default()
+                    })
+                    .with_children(|score_section| {
+                        score_section.spawn((
+                            Text::new("SCORE"),
+                            TextFont {
+                                font_size: FontSize::Px(16.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 0.75, 0.7)),
+                        ));
+                        score_section
+                            .spawn((
+                                Node {
+                                    width: percent(100.0),
+                                    height: px(42.0),
+                                    justify_content: JustifyContent::FlexEnd,
+                                    align_items: AlignItems::Center,
+                                    padding: UiRect::horizontal(px(10.0)),
+                                    border: UiRect::all(px(3.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(BevyColor::BLACK),
+                                BorderColor::all(BevyColor::srgb(0.02, 0.06, 0.55)),
+                            ))
+                            .with_children(|value| {
+                                value.spawn((
+                                    Text::new(format!("{:06}", game.score)),
+                                    TextFont {
+                                        font_size: FontSize::Px(27.0),
+                                        ..default()
+                                    },
+                                    TextColor(BevyColor::srgb(0.25, 0.9, 0.22)),
+                                    ScoreText,
+                                ));
+                            });
+                    });
+
+                // CUBES PLAYED
+                right_panel
+                    .spawn(Node {
+                        width: percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: px(4.0),
+                        ..default()
+                    })
+                    .with_children(|cubes_section| {
+                        cubes_section.spawn((
+                            Text::new("CUBES PLAYED"),
+                            TextFont {
+                                font_size: FontSize::Px(15.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 0.75, 0.7)),
+                        ));
+                        cubes_section
+                            .spawn((
+                                Node {
+                                    width: percent(100.0),
+                                    height: px(42.0),
+                                    justify_content: JustifyContent::FlexEnd,
+                                    align_items: AlignItems::Center,
+                                    padding: UiRect::horizontal(px(10.0)),
+                                    border: UiRect::all(px(3.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(BevyColor::BLACK),
+                                BorderColor::all(BevyColor::srgb(0.02, 0.06, 0.55)),
+                            ))
+                            .with_children(|value| {
+                                value.spawn((
+                                    Text::new(format!("{:03}", game.figures_placed)),
+                                    TextFont {
+                                        font_size: FontSize::Px(27.0),
+                                        ..default()
+                                    },
+                                    TextColor(BevyColor::srgb(0.25, 0.9, 0.22)),
+                                    FiguresPlacedText,
+                                ));
+                            });
+                    });
+
+                right_panel
+                    .spawn(Node {
+                        width: percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: px(4.0),
+                        ..default()
+                    })
+                    .with_children(|pit_section| {
+                        pit_section.spawn((
+                            Text::new("PIT"),
+                            TextFont {
+                                font_size: FontSize::Px(15.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 0.75, 0.7)),
+                        ));
+                        pit_section
+                            .spawn((
+                                Node {
+                                    width: percent(100.0),
+                                    height: px(38.0),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    border: UiRect::all(px(3.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(BevyColor::BLACK),
+                                BorderColor::all(BevyColor::srgb(0.02, 0.06, 0.55)),
+                            ))
+                            .with_children(|value| {
+                                value.spawn((
+                                    Text::new(format!(
+                                        "{}x{}x{}",
+                                        game.well.width, game.well.height, game.well.depth
+                                    )),
+                                    TextFont {
+                                        font_size: FontSize::Px(22.0),
+                                        ..default()
+                                    },
+                                    TextColor(BevyColor::srgb(0.92, 0.58, 0.16)),
+                                ));
+                            });
+                    });
+
+                right_panel
+                    .spawn(Node {
+                        width: percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: px(4.0),
+                        ..default()
+                    })
+                    .with_children(|set_section| {
+                        set_section.spawn((
+                            Text::new("BLOCK SET"),
+                            TextFont {
+                                font_size: FontSize::Px(15.0),
+                                ..default()
+                            },
+                            TextColor(BevyColor::srgb(0.2, 0.75, 0.7)),
+                        ));
+                        set_section
+                            .spawn((
+                                Node {
+                                    width: percent(100.0),
+                                    height: px(38.0),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    border: UiRect::all(px(3.0)),
+                                    ..default()
+                                },
+                                BackgroundColor(BevyColor::BLACK),
+                                BorderColor::all(BevyColor::srgb(0.02, 0.06, 0.55)),
+                            ))
+                            .with_children(|value| {
+                                value.spawn((
+                                    Text::new(game_settings.block_set.label()),
+                                    TextFont {
+                                        font_size: FontSize::Px(17.0),
+                                        ..default()
+                                    },
+                                    TextColor(BevyColor::srgb(0.92, 0.58, 0.16)),
+                                ));
+                            });
                     });
             });
         });
@@ -1104,11 +1622,11 @@ fn setup_game(
     ));
 
     let block_colors = [
-        (Color::Cyan, BevyColor::srgb(0.2, 0.8, 1.0)),
-        (Color::Orange, BevyColor::srgb(1.0, 0.4, 0.1)),
-        (Color::Green, BevyColor::srgb(0.2, 0.9, 0.3)),
-        (Color::Purple, BevyColor::srgb(0.7, 0.2, 1.0)),
-        (Color::Yellow, BevyColor::srgb(1.0, 0.85, 0.1)),
+        Color::Cyan,
+        Color::Orange,
+        Color::Green,
+        Color::Purple,
+        Color::Yellow,
     ];
     let block_material_kinds = [
         Material::Metal,
@@ -1117,28 +1635,34 @@ fn setup_game(
         Material::Neon,
     ];
     let mut block_materials = HashMap::new();
+    let mut active_block_materials = HashMap::new();
 
-    for (color, base_color) in block_colors {
+    for color in block_colors {
         for material in block_material_kinds {
+            let base_color = block_visual_color(color);
             let visual_material = materials.add(make_block_material(base_color, material));
+            let active_visual_material =
+                materials.add(make_active_block_material(base_color, material));
             block_materials.insert((color, material), visual_material);
+            active_block_materials.insert((color, material), active_visual_material);
         }
     }
 
     let block_visuals = BlockVisualAssets {
         mesh: meshes.add(Cuboid::new(0.9, 0.9, 0.9)),
         materials: block_materials,
+        active_materials: active_block_materials,
     };
 
     let block_mesh = block_visuals.mesh.clone();
 
     for (index, block) in game.active_figure.blocks.iter().enumerate() {
         let world_position = block.position;
-        let block_material = block_visuals.material_for(*block);
+        let active_block_material = block_visuals.active_material_for(*block);
 
         commands.spawn((
             Mesh3d(block_mesh.clone()),
-            MeshMaterial3d(block_material),
+            MeshMaterial3d(active_block_material),
             Transform::from_translation(logical_position_to_bevy_translation(world_position)),
             FigureBlockIndex { index },
             DespawnOnExit(AppState::InGame),
@@ -1146,15 +1670,15 @@ fn setup_game(
     }
 
     for (index, block) in game.next_figure.blocks.iter().enumerate() {
-        let preview_scale = 0.7;
         let preview_translation =
-            preview_block_translation(*block, game.next_figure.pivot, preview_scale);
+            preview_block_translation(*block, &game.next_figure, PREVIEW_BLOCK_SCALE);
         let preview_material = block_visuals.material_for(*block);
 
         commands.spawn((
             Mesh3d(block_mesh.clone()),
             MeshMaterial3d(preview_material),
-            Transform::from_translation(preview_translation).with_scale(Vec3::splat(preview_scale)),
+            Transform::from_translation(preview_translation)
+                .with_scale(Vec3::splat(PREVIEW_BLOCK_SCALE)),
             RenderLayers::layer(PREVIEW_RENDER_LAYER),
             PreviewBlockIndex { index },
             DespawnOnExit(AppState::InGame),
@@ -1201,23 +1725,20 @@ fn handle_input(
 
     let mut delta = Vec3i { x: 0, y: 0, z: 0 };
 
-    if keyboard.just_pressed(KeyCode::KeyA) {
-        delta.x -= 1;
-    }
-    if keyboard.just_pressed(KeyCode::KeyD) {
+    if keyboard.just_pressed(KeyCode::ArrowLeft) {
         delta.x += 1;
     }
-    if keyboard.just_pressed(KeyCode::KeyS) {
+    if keyboard.just_pressed(KeyCode::ArrowRight) {
+        delta.x -= 1;
+    }
+    if keyboard.just_pressed(KeyCode::ArrowDown) {
         delta.y -= 1;
     }
-    if keyboard.just_pressed(KeyCode::KeyW) {
+    if keyboard.just_pressed(KeyCode::ArrowUp) {
         delta.y += 1;
     }
-    if keyboard.just_pressed(KeyCode::KeyE) {
-        delta.z += 1;
-    }
 
-    if delta.x != 0 || delta.y != 0 || delta.z != 0 {
+    if delta.x != 0 || delta.y != 0 {
         let mut candidate = game.active_figure.clone();
         candidate.move_by(delta);
 
@@ -1229,40 +1750,49 @@ fn handle_input(
         }
     }
 
-    if keyboard.just_pressed(KeyCode::KeyX) {
-        if let Some(candidate) =
-            rotated_figure_with_entrance_kick(&game.well, &game.active_figure, Axis::X)
-        {
+    if keyboard.just_pressed(KeyCode::KeyR) {
+        if let Some(candidate) = figure_with_next_orientation(&game.well, &game.active_figure) {
             game.active_figure = candidate;
-            info!("rotate X: {:?}", game.active_figure.blocks);
+            info!("cycled to the next 3D orientation");
         } else {
-            info!("rotation X blocked by well bounds or occupied cells");
+            info!("all alternative orientations are blocked");
         }
     }
 
-    if keyboard.just_pressed(KeyCode::KeyY) {
+    let rotation = if keyboard.just_pressed(KeyCode::KeyQ) {
+        Some((Axis::X, RotationDirection::Positive))
+    } else if keyboard.just_pressed(KeyCode::KeyA) {
+        Some((Axis::X, RotationDirection::Negative))
+    } else if keyboard.just_pressed(KeyCode::KeyW) {
+        Some((Axis::Y, RotationDirection::Positive))
+    } else if keyboard.just_pressed(KeyCode::KeyS) {
+        Some((Axis::Y, RotationDirection::Negative))
+    } else if keyboard.just_pressed(KeyCode::KeyE) {
+        Some((Axis::Z, RotationDirection::Positive))
+    } else if keyboard.just_pressed(KeyCode::KeyD) {
+        Some((Axis::Z, RotationDirection::Negative))
+    } else {
+        None
+    };
+
+    if let Some((axis, direction)) = rotation {
         if let Some(candidate) =
-            rotated_figure_with_entrance_kick(&game.well, &game.active_figure, Axis::Y)
+            rotated_figure_with_entrance_kick(&game.well, &game.active_figure, axis, direction)
         {
             game.active_figure = candidate;
-            info!("rotate Y: {:?}", game.active_figure.blocks);
+            info!(
+                "rotate {:?} {:?}: {:?}",
+                axis, direction, game.active_figure.blocks
+            );
         } else {
-            info!("rotation Y blocked by well bounds or occupied cells");
+            info!(
+                "rotation {:?} {:?} blocked by well bounds or occupied cells",
+                axis, direction
+            );
         }
     }
 
-    if keyboard.just_pressed(KeyCode::KeyZ) {
-        if let Some(candidate) =
-            rotated_figure_with_entrance_kick(&game.well, &game.active_figure, Axis::Z)
-        {
-            game.active_figure = candidate;
-            info!("rotate Z: {:?}", game.active_figure.blocks);
-        } else {
-            info!("rotation Z blocked by well bounds or occupied cells");
-        }
-    }
-
-    if keyboard.just_pressed(KeyCode::Space) {
+    if keyboard.just_pressed(KeyCode::KeyG) {
         game.show_line = !game.show_line;
 
         for mut visibility in &mut line {
@@ -1274,7 +1804,7 @@ fn handle_input(
         }
     }
 
-    if keyboard.just_pressed(KeyCode::Enter) {
+    if keyboard.just_pressed(KeyCode::Space) || keyboard.just_pressed(KeyCode::Enter) {
         let drop_delta = Vec3i { x: 0, y: 0, z: 1 };
 
         loop {
@@ -1360,7 +1890,7 @@ fn sync_figure_position(
 
         transform.translation = logical_position_to_bevy_translation(block.position);
 
-        material.0 = block_visuals.material_for(block);
+        material.0 = block_visuals.active_material_for(block);
     }
 }
 
@@ -1373,15 +1903,38 @@ fn sync_next_figure_preview(
         &mut MeshMaterial3d<StandardMaterial>,
     )>,
 ) {
-    let preview_scale = 0.7;
-
     for (block_index, mut transform, mut material) in &mut blocks {
         let block = game.next_figure.blocks[block_index.index];
 
         transform.translation =
-            preview_block_translation(block, game.next_figure.pivot, preview_scale);
+            preview_block_translation(block, &game.next_figure, PREVIEW_BLOCK_SCALE);
 
         material.0 = block_visuals.material_for(block);
+    }
+}
+
+fn sync_pit_depth_meter(
+    game: Res<GameModel>,
+    mut cells: Query<(&PitDepthCell, &mut BackgroundColor)>,
+) {
+    for (cell, mut background) in &mut cells {
+        let active_color = game
+            .active_figure
+            .blocks
+            .iter()
+            .find(|block| block.position.z == cell.z_index as i32)
+            .map(|block| block.color);
+        let locked_color = game.well.planes[cell.z_index]
+            .blocks
+            .iter()
+            .flatten()
+            .next()
+            .map(|block| block.color);
+
+        background.0 = active_color
+            .or(locked_color)
+            .map(block_visual_color)
+            .unwrap_or(BevyColor::BLACK);
     }
 }
 
@@ -1439,16 +1992,11 @@ fn draw_well(mut gizmos: Gizmos, game: Res<GameModel>) {
     let max_y = game.well.height as f32 - 0.5;
     let entrance_z = -0.5;
     let bottom_z = game.well.depth as f32 - 0.5;
-    let wall_guide_color = BevyColor::srgba(0.12, 0.38, 0.62, 0.18);
-    let entrance_color = BevyColor::srgb(0.25, 0.8, 1.0);
-    let bottom_color = BevyColor::srgba(0.25, 0.65, 0.85, 0.8);
+    let wall_guide_color = BevyColor::srgba(0.12, 0.52, 0.14, 0.42);
+    let entrance_color = BevyColor::srgb(0.72, 0.8, 0.72);
+    let bottom_color = BevyColor::srgba(0.18, 0.68, 0.16, 0.88);
 
     for z_index in 0..=game.well.depth {
-        let is_boundary = z_index == 0 || z_index == game.well.depth;
-        if !is_boundary && z_index % 2 != 0 {
-            continue;
-        }
-
         let z = z_index as f32 - 0.5;
         let color = if z_index == 0 {
             entrance_color
@@ -1456,8 +2004,8 @@ fn draw_well(mut gizmos: Gizmos, game: Res<GameModel>) {
             bottom_color
         } else {
             let depth_fraction = z_index as f32 / game.well.depth as f32;
-            let alpha = 0.3 - depth_fraction * 0.16;
-            BevyColor::srgba(0.12, 0.42, 0.7, alpha)
+            let alpha = 0.5 - depth_fraction * 0.24;
+            BevyColor::srgba(0.12, 0.58, 0.14, alpha)
         };
 
         gizmos.line(
@@ -1660,6 +2208,38 @@ fn handle_level_adjustment_buttons(
     }
 }
 
+fn handle_pit_size_adjustment_buttons(
+    buttons: Query<(&Interaction, &PitSizeAdjustment), Changed<Interaction>>,
+    mut game_settings: ResMut<GameSettings>,
+) {
+    for (interaction, adjustment) in &buttons {
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+
+        game_settings.pit_size = match adjustment.direction {
+            SelectionDirection::Previous => game_settings.pit_size.previous(),
+            SelectionDirection::Next => game_settings.pit_size.next(),
+        };
+    }
+}
+
+fn handle_block_set_adjustment_buttons(
+    buttons: Query<(&Interaction, &BlockSetAdjustment), Changed<Interaction>>,
+    mut game_settings: ResMut<GameSettings>,
+) {
+    for (interaction, adjustment) in &buttons {
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+
+        game_settings.block_set = match adjustment.direction {
+            SelectionDirection::Previous => game_settings.block_set.previous(),
+            SelectionDirection::Next => game_settings.block_set.next(),
+        };
+    }
+}
+
 fn sync_settings_level_text(
     game_settings: Res<GameSettings>,
     mut level_texts: Query<&mut Text, With<SettingsLevelText>>,
@@ -1670,6 +2250,32 @@ fn sync_settings_level_text(
 
     for mut text in &mut level_texts {
         text.0 = game_settings.level.to_string();
+    }
+}
+
+fn sync_settings_pit_size_text(
+    game_settings: Res<GameSettings>,
+    mut pit_size_texts: Query<&mut Text, With<SettingsPitSizeText>>,
+) {
+    if !game_settings.is_changed() {
+        return;
+    }
+
+    for mut text in &mut pit_size_texts {
+        text.0 = game_settings.pit_size.label().to_owned();
+    }
+}
+
+fn sync_settings_block_set_text(
+    game_settings: Res<GameSettings>,
+    mut block_set_texts: Query<&mut Text, With<SettingsBlockSetText>>,
+) {
+    if !game_settings.is_changed() {
+        return;
+    }
+
+    for mut text in &mut block_set_texts {
+        text.0 = game_settings.block_set.label().to_owned();
     }
 }
 
@@ -1699,6 +2305,7 @@ fn handle_restart_button(
     mut commands: Commands,
     restart_buttons: Query<&Interaction, (Changed<Interaction>, With<RestartButton>)>,
     mut game: ResMut<GameModel>,
+    game_settings: Res<GameSettings>,
     mut gravity: ResMut<GravityTimer>,
     locked_blocks: Query<Entity, With<LockedBlock>>,
     destroying_blocks: Query<Entity, With<DestroyingBlock>>,
@@ -1720,7 +2327,7 @@ fn handle_restart_button(
             commands.entity(entity).despawn();
         }
 
-        *game = GameModel::new();
+        *game = GameModel::new(*game_settings);
         gravity.timer.reset();
     }
 }
@@ -1746,6 +2353,7 @@ fn setup_game_main_menu(mut commands: Commands) {
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
+                row_gap: px(24.0),
                 ..default()
             },
             BackgroundColor(BevyColor::srgb(0.0, 0.0, 0.0)),
@@ -1755,21 +2363,21 @@ fn setup_game_main_menu(mut commands: Commands) {
         .with_children(|main_menu| {
             main_menu
                 .spawn((
-                    Text::new("Block"),
+                    Text::new("BLOCK"),
                     TextFont {
                         font_size: FontSize::Px(72.0),
                         ..default()
                     },
-                    TextColor(BevyColor::srgb(0.2, 1.0, 0.35)),
+                    TextColor(BevyColor::srgb(0.92, 0.08, 0.04)),
                 ))
                 .with_children(|title| {
                     title.spawn((
-                        TextSpan::new("Out"),
+                        TextSpan::new(" OUT"),
                         TextFont {
                             font_size: FontSize::Px(72.0),
                             ..default()
                         },
-                        TextColor(BevyColor::srgb(1.0, 0.15, 0.15)),
+                        TextColor(BevyColor::srgb(0.08, 0.22, 0.95)),
                     ));
                 });
 
@@ -1780,12 +2388,11 @@ fn setup_game_main_menu(mut commands: Commands) {
                         flex_direction: FlexDirection::Column,
                         row_gap: px(16.0),
                         padding: UiRect::all(px(20.0)),
-                        border: UiRect::all(px(2.0)),
-                        border_radius: BorderRadius::all(px(8.0)),
+                        border: UiRect::all(px(3.0)),
                         ..default()
                     },
-                    BackgroundColor(BevyColor::srgb(0.01, 0.04, 0.09)),
-                    BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                    BackgroundColor(BevyColor::srgb(0.0, 0.0, 0.025)),
+                    BorderColor::all(BevyColor::srgb(0.02, 0.08, 0.65)),
                 ))
                 .with_children(|buttons_container| {
                     buttons_container
@@ -1902,7 +2509,7 @@ fn setup_game_settings(mut commands: Commands, game_settings: Res<GameSettings>)
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
-                row_gap: px(32.0),
+                row_gap: px(20.0),
                 ..default()
             },
             BackgroundColor(BevyColor::srgb(0.0, 0.0, 0.0)),
@@ -1916,23 +2523,22 @@ fn setup_game_settings(mut commands: Commands, game_settings: Res<GameSettings>)
                     font_size: FontSize::Px(52.0),
                     ..default()
                 },
-                TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                TextColor(BevyColor::srgb(0.2, 0.75, 0.7)),
             ));
 
             settings
                 .spawn((
                     Node {
-                        width: px(420.0),
+                        width: px(480.0),
                         flex_direction: FlexDirection::Column,
                         align_items: AlignItems::Center,
-                        row_gap: px(20.0),
-                        padding: UiRect::all(px(28.0)),
-                        border: UiRect::all(px(2.0)),
-                        border_radius: BorderRadius::all(px(8.0)),
+                        row_gap: px(12.0),
+                        padding: UiRect::all(px(20.0)),
+                        border: UiRect::all(px(3.0)),
                         ..default()
                     },
-                    BackgroundColor(BevyColor::srgb(0.01, 0.04, 0.09)),
-                    BorderColor::all(BevyColor::srgb(0.1, 0.35, 0.9)),
+                    BackgroundColor(BevyColor::srgb(0.0, 0.0, 0.025)),
+                    BorderColor::all(BevyColor::srgb(0.02, 0.08, 0.65)),
                 ))
                 .with_children(|panel| {
                     panel.spawn((
@@ -2008,6 +2614,174 @@ fn setup_game_settings(mut commands: Commands, game_settings: Res<GameSettings>)
                                         Text::new("+"),
                                         TextFont {
                                             font_size: FontSize::Px(30.0),
+                                            ..default()
+                                        },
+                                        TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                                    ));
+                                });
+                        });
+
+                    panel.spawn((
+                        Text::new("PIT"),
+                        TextFont {
+                            font_size: FontSize::Px(20.0),
+                            ..default()
+                        },
+                        TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                    ));
+
+                    panel
+                        .spawn(Node {
+                            width: percent(100.0),
+                            justify_content: JustifyContent::SpaceBetween,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        })
+                        .with_children(|pit_selector| {
+                            pit_selector
+                                .spawn((
+                                    Button,
+                                    Node {
+                                        width: px(72.0),
+                                        height: px(48.0),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        border: UiRect::all(px(2.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                                    BorderColor::all(BevyColor::srgb(0.1, 0.45, 1.0)),
+                                    PitSizeAdjustment {
+                                        direction: SelectionDirection::Previous,
+                                    },
+                                ))
+                                .with_children(|button| {
+                                    button.spawn((
+                                        Text::new("<"),
+                                        TextFont {
+                                            font_size: FontSize::Px(28.0),
+                                            ..default()
+                                        },
+                                        TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                                    ));
+                                });
+
+                            pit_selector.spawn((
+                                Text::new(game_settings.pit_size.label()),
+                                TextFont {
+                                    font_size: FontSize::Px(28.0),
+                                    ..default()
+                                },
+                                TextColor(BevyColor::srgb(0.92, 0.58, 0.16)),
+                                SettingsPitSizeText,
+                            ));
+
+                            pit_selector
+                                .spawn((
+                                    Button,
+                                    Node {
+                                        width: px(72.0),
+                                        height: px(48.0),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        border: UiRect::all(px(2.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                                    BorderColor::all(BevyColor::srgb(0.1, 0.45, 1.0)),
+                                    PitSizeAdjustment {
+                                        direction: SelectionDirection::Next,
+                                    },
+                                ))
+                                .with_children(|button| {
+                                    button.spawn((
+                                        Text::new(">"),
+                                        TextFont {
+                                            font_size: FontSize::Px(28.0),
+                                            ..default()
+                                        },
+                                        TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                                    ));
+                                });
+                        });
+
+                    panel.spawn((
+                        Text::new("BLOCK SET"),
+                        TextFont {
+                            font_size: FontSize::Px(20.0),
+                            ..default()
+                        },
+                        TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                    ));
+
+                    panel
+                        .spawn(Node {
+                            width: percent(100.0),
+                            justify_content: JustifyContent::SpaceBetween,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        })
+                        .with_children(|block_set_selector| {
+                            block_set_selector
+                                .spawn((
+                                    Button,
+                                    Node {
+                                        width: px(72.0),
+                                        height: px(48.0),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        border: UiRect::all(px(2.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                                    BorderColor::all(BevyColor::srgb(0.1, 0.45, 1.0)),
+                                    BlockSetAdjustment {
+                                        direction: SelectionDirection::Previous,
+                                    },
+                                ))
+                                .with_children(|button| {
+                                    button.spawn((
+                                        Text::new("<"),
+                                        TextFont {
+                                            font_size: FontSize::Px(28.0),
+                                            ..default()
+                                        },
+                                        TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
+                                    ));
+                                });
+
+                            block_set_selector.spawn((
+                                Text::new(game_settings.block_set.label()),
+                                TextFont {
+                                    font_size: FontSize::Px(25.0),
+                                    ..default()
+                                },
+                                TextColor(BevyColor::srgb(0.92, 0.58, 0.16)),
+                                SettingsBlockSetText,
+                            ));
+
+                            block_set_selector
+                                .spawn((
+                                    Button,
+                                    Node {
+                                        width: px(72.0),
+                                        height: px(48.0),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        border: UiRect::all(px(2.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
+                                    BorderColor::all(BevyColor::srgb(0.1, 0.45, 1.0)),
+                                    BlockSetAdjustment {
+                                        direction: SelectionDirection::Next,
+                                    },
+                                ))
+                                .with_children(|button| {
+                                    button.spawn((
+                                        Text::new(">"),
+                                        TextFont {
+                                            font_size: FontSize::Px(28.0),
                                             ..default()
                                         },
                                         TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
