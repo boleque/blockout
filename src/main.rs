@@ -27,7 +27,6 @@ enum AppState {
     #[default]
     MainMenu,
     InGame,
-    Leaderboard,
     Settings,
 }
 
@@ -319,9 +318,6 @@ struct MainMenuButton;
 
 #[derive(Component)]
 struct PlayButton;
-
-#[derive(Component)]
-struct LeaderboardButton;
 
 #[derive(Component)]
 struct SettingsButton;
@@ -2412,31 +2408,6 @@ fn setup_game_main_menu(mut commands: Commands) {
                             ));
                         });
 
-                    buttons_container
-                        .spawn((
-                            Button,
-                            Node {
-                                width: percent(100.0),
-                                height: px(56.0),
-                                justify_content: JustifyContent::Center,
-                                align_items: AlignItems::Center,
-                                border: UiRect::all(px(2.0)),
-                                ..default()
-                            },
-                            BackgroundColor(BevyColor::srgb(0.04, 0.12, 0.25)),
-                            BorderColor::all(BevyColor::srgb(0.2, 0.75, 1.0)),
-                            LeaderboardButton,
-                        ))
-                        .with_children(|button| {
-                            button.spawn((
-                                Text::new("LEADERBOARD"),
-                                TextFont {
-                                    font_size: FontSize::Px(22.0),
-                                    ..default()
-                                },
-                                TextColor(BevyColor::srgb(0.2, 0.75, 1.0)),
-                            ));
-                        });
                     buttons_container
                         .spawn((
                             Button,
