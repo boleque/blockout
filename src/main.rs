@@ -1860,10 +1860,6 @@ fn handle_input(
             info!("cleared {} planes", cleared_planes.len());
         }
 
-        info!("active_figure locked at {:?}", game.active_figure.pivot);
-        info!("occupied cell count: {}", game.well.occupied_count());
-        info!("cleared planes: {}", cleared_planes.len());
-
         rebuild_locked_block_visuals(&mut commands, &game.well, &block_visuals, &locked_blocks);
 
         game.active_figure = game.next_figure.clone();
@@ -2135,10 +2131,6 @@ fn apply_gravity(
             }
         }
 
-        if cleared_planes.len() > 0 {
-            info!("cleared {} planes", cleared_planes.len());
-        }
-
         rebuild_locked_block_visuals(&mut commands, &game.well, &block_visuals, &locked_blocks);
 
         game.active_figure = game.next_figure.clone();
@@ -2148,7 +2140,6 @@ fn apply_gravity(
 
         if !can_spawn {
             game.game_over = true;
-            info!("GAME OVER");
         }
     }
 }
