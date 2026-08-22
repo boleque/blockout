@@ -122,5 +122,9 @@ cargo test
 
 ## Technology
 
-- Rust 2024;
-- Bevy 0.19;
+- Rust 2024
+- Bevy 0.19
+
+## License
+
+This project is available under the [MIT License](LICENSE).
